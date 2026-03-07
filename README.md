@@ -13,29 +13,50 @@
 | python-multipart  | Handles file uploads (image upload support in FastAPI)                   |
 | authlib           | OAuth client integration for Google login                                |
 | httpx             | Async HTTP client (used by Authlib and for any HTTP requests)            |
-| boto3             | AWS SDK for Python (DynamoDB and S3 integration)                         |
-| botocore          | Core library for AWS SDK (dependency of boto3)                           |
+| supabase          | Supabase Python client (database + file storage)                         |
 | itsdangerous      | Secure session management (used by Starlette's SessionMiddleware)        |
 | pytest            | Testing framework for Python (backend API tests)                         |
 
 # mbl2pc
 
-mbl2pc is a cloud-based chat app that lets you send text, images, and files from your phone to your PC (or vice versa) using a FastAPI backend, Google OAuth login, and AWS DynamoDB for persistent, per-user chat history. The app is designed for free hosting on Render.com.
+mbl2pc is a cloud-based chat app that lets you send text, images, and files from your phone to your PC (or vice versa) using a FastAPI backend, Google OAuth login, and Supabase (free PostgreSQL + file storage) for persistent, per-user chat history. The app is designed for free hosting on Render.com.
 
 ## Features
 - Google OAuth login (secure, per-user chat)
 - Send and receive text messages
 - Upload and send images with optional captions
 - Upload and send any file (PDF, doc, ZIP, etc.) — renders as a download card in chat
-- Persistent chat history stored in DynamoDB
+- Persistent chat history stored in Supabase (free PostgreSQL)
+- Files and images stored in Supabase Storage (free)
 - Modern responsive web UI with dark mode (works on mobile and desktop)
 - Always-ready: keep-alive pinging prevents Render free-tier cold starts
 
 ## Prerequisites
 - Python 3.12.3
-- AWS account with DynamoDB table (default: `mbl2pc-messages`)
+- [Supabase](https://supabase.com) account (free, no credit card)
 - Google Cloud project with OAuth 2.0 credentials
 - (For deployment) Render.com account
+
+## Supabase Setup (one-time)
+
+1. Go to [supabase.com](https://supabase.com) → **New Project** (free tier)
+2. In the **SQL Editor**, run this to create the messages table:
+   ```sql
+   CREATE TABLE messages (
+     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     sender TEXT,
+     text TEXT,
+     image_url TEXT,
+     file_url TEXT,
+     file_name TEXT,
+     timestamp TEXT,
+     user_id TEXT
+   );
+   ```
+3. Go to **Storage** → **New Bucket** → name it `mbl2pc-files` → set to **Public**
+4. Go to **Project Settings** → **API** and copy:
+   - **Project URL** → `SUPABASE_URL`
+   - **service_role** secret key → `SUPABASE_SERVICE_KEY`
 
 ## Local Development
 1. **Clone the repo:**
@@ -53,10 +74,9 @@ mbl2pc is a cloud-based chat app that lets you send text, images, and files from
 	- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: from Google Cloud Console
 	- `OAUTH_REDIRECT_URI`: e.g. `http://localhost:8000/auth` (for local dev)
 	- `SESSION_SECRET_KEY`: any random string
-	- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`: for DynamoDB and S3 access
-	- `AWS_REGION`: e.g. `us-east-2`
-	- `MBL2PC_DDB_TABLE`: (optional) DynamoDB table name
-	- `S3_BUCKET`: (optional) S3 bucket for image/file storage
+	- `SUPABASE_URL`: your Supabase project URL
+	- `SUPABASE_SERVICE_KEY`: your Supabase service_role key
+	- `SUPABASE_STORAGE_BUCKET`: (optional, default: `mbl2pc-files`)
 4. **Run the app:**
 	```bash
 	uvicorn main:app --reload
@@ -72,9 +92,13 @@ mbl2pc is a cloud-based chat app that lets you send text, images, and files from
 	- Start Command: `uvicorn main:app --host 0.0.0.0 --port 10000`
 	- Set environment variables as above (use your Render.com URL for `OAUTH_REDIRECT_URI`)
 	- Expose port 10000 (Render uses the `PORT` env var)
-3. **Set up AWS IAM permissions:**
-	- The IAM user must have `dynamodb:Scan`, `dynamodb:PutItem`, and `dynamodb:GetItem` permissions on your table.
-	- The IAM user must have `s3:PutObject`, `s3:GetObject` permissions on your S3 bucket.
+3. **Set environment variables on Render:**
+	- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+	- `OAUTH_REDIRECT_URI`: your Render.com URL + `/auth` (e.g. `https://mbl2pc.onrender.com/auth`)
+	- `SESSION_SECRET_KEY`: any long random string
+	- `SUPABASE_URL`: your Supabase project URL
+	- `SUPABASE_SERVICE_KEY`: your Supabase service_role key
+	- `SUPABASE_STORAGE_BUCKET`: (optional, default: `mbl2pc-files`)
 4. **Set up Google OAuth:**
 	- In Google Cloud Console, set the authorized redirect URI to your Render.com URL (e.g. `https://your-app.onrender.com/auth`)
 5. **Auto-deploy is already configured** — Render is connected to this repo and deploys automatically on every push to `main`. Just `git push` and Render handles the rest.

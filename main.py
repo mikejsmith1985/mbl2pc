@@ -60,12 +60,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
-import shutil
-from botocore.exceptions import NoCredentialsError
-
-import boto3
 import uuid
-from botocore.exceptions import ClientError
 
 from starlette.middleware.sessions import SessionMiddleware
 app = FastAPI()
@@ -176,18 +171,22 @@ class Message(BaseModel):
     user_id: str
 
 
-DDB_TABLE = os.environ.get("MBL2PC_DDB_TABLE", "mbl2pc-messages")
-DDB_REGION = os.environ.get("AWS_REGION", "us-east-1")
-try:
-    dynamodb = boto3.resource("dynamodb", region_name=DDB_REGION)
-    table = dynamodb.Table(DDB_TABLE)
-except Exception as e:
-    print(f"[ERROR] Failed to initialize DynamoDB: {e}", file=sys.stderr)
-    table = None
+# ── Supabase setup ─────────────────────────────────────────────────────────────
+from supabase import create_client, Client as SupabaseClient
 
-# S3 setup
-S3_BUCKET = os.environ.get("S3_BUCKET", "mbl2pc-images")
-s3 = boto3.client("s3", region_name=DDB_REGION)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "mbl2pc-files")
+
+supabase: SupabaseClient | None = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        print("[INFO] Supabase client initialized.", file=sys.stderr)
+    except Exception as e:
+        print(f"[ERROR] Failed to initialize Supabase: {e}", file=sys.stderr)
+else:
+    print("[ERROR] Missing SUPABASE_URL or SUPABASE_SERVICE_KEY", file=sys.stderr)
 
 # Ensure static/images directory exists
 if not os.path.exists("static/images"):
@@ -218,7 +217,35 @@ def detect_device(request: Request) -> str:
     return "unknown"
 
 
-# Text message endpoint (DynamoDB)
+def _supabase_insert(item: dict):
+    """Insert a message row into Supabase. Raises HTTPException on failure."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_KEY.")
+    try:
+        supabase.table("messages").insert(item).execute()
+    except Exception as e:
+        print(f"[ERROR] Supabase insert error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
+    """Upload bytes to Supabase Storage and return the public URL."""
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        supabase.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+            path,
+            contents,
+            {"content-type": content_type, "upsert": "false"}
+        )
+        url_resp = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(path)
+        return url_resp
+    except Exception as e:
+        print(f"[ERROR] Supabase storage upload error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"File upload error: {e}")
+
+
+# Text message endpoint
 @app.post("/send")
 async def send_message(request: Request, msg: str = Form(""), sender: str = Form("")):
     try:
@@ -232,34 +259,18 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         raise HTTPException(status_code=500, detail="Internal error authenticating user.")
     if not sender:
         sender = detect_device(request)
-    message = Message(
-        sender=sender,
-        text=msg,
-        image_url="",
-        file_url="",
-        file_name="",
-        timestamp=datetime.now().isoformat(timespec="seconds"),
-        user_id=user['sub']
-    )
-    item = {k: v for k, v in message.dict().items() if v != ""}
-    item["id"] = str(uuid.uuid4())
-    if not table:
-        print("[ERROR] DynamoDB table is not initialized.", file=sys.stderr)
-        raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")
-    try:
-        table.put_item(Item=item)
-    except ClientError as e:
-        print(f"[ERROR] DynamoDB error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
-    except Exception as e:
-        import traceback
-        print(f"[ERROR] Unexpected error writing to DynamoDB: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"Unexpected error writing to DynamoDB: {e}")
+    item = {
+        "id": str(uuid.uuid4()),
+        "sender": sender,
+        "text": msg,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "user_id": user['sub']
+    }
+    _supabase_insert(item)
     return {"status": "Message received"}
 
 
-# Image upload endpoint with optional text (DynamoDB)
+# Image upload endpoint with optional text
 @app.post("/send-image")
 async def send_image(
     request: Request,
@@ -268,7 +279,6 @@ async def send_image(
     text: str = Form("")
 ):
     user = get_current_user(request)
-    # Validate file
     if not file or not hasattr(file, "filename"):
         raise HTTPException(status_code=400, detail="No file uploaded.")
     filename = file.filename or ""
@@ -277,42 +287,20 @@ async def send_image(
         raise HTTPException(status_code=400, detail="File must have an extension (e.g. .jpg, .png)")
     if ext not in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
         raise HTTPException(status_code=400, detail="Unsupported file type.")
+    contents = await file.read()
     fname = f"img_{datetime.now().strftime('%Y%m%d%H%M%S%f')}{ext}"
-    # Upload to S3
-    try:
-        file.file.seek(0)
-        s3.upload_fileobj(
-            file.file,
-            S3_BUCKET,
-            fname,
-            ExtraArgs={"ContentType": file.content_type}
-        )
-        image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{fname}"
-    except NoCredentialsError:
-        raise HTTPException(status_code=500, detail="AWS credentials not found for S3 upload.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload image to S3: {e}")
+    image_url = _upload_to_supabase(contents, fname, file.content_type or "image/jpeg")
     if not sender:
         sender = detect_device(request)
-    message = Message(
-        sender=sender,
-        text=text,
-        image_url=image_url,
-        file_url="",
-        file_name="",
-        timestamp=datetime.now().isoformat(timespec="seconds"),
-        user_id=user['sub']
-    )
-    item = {k: v for k, v in message.dict().items() if v != ""}
-    item["id"] = str(uuid.uuid4())
-    if not table:
-        print("[ERROR] DynamoDB table is not initialized.", file=sys.stderr)
-        raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")
-    try:
-        table.put_item(Item=item)
-    except ClientError as e:
-        print(f"[ERROR] DynamoDB error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
+    item = {
+        "id": str(uuid.uuid4()),
+        "sender": sender,
+        "text": text,
+        "image_url": image_url,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "user_id": user['sub']
+    }
+    _supabase_insert(item)
     return {"status": "Image received", "image_url": image_url}
 
 
@@ -330,71 +318,43 @@ async def send_file(
     if not file or not hasattr(file, "filename") or not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded.")
     original_name = file.filename
-    ext = os.path.splitext(original_name)[1].lower()
-    # Read file contents for size check
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File exceeds 25 MB limit.")
     safe_name = f"file_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{original_name}"
     content_type = file.content_type or "application/octet-stream"
-    # Upload to S3 with Content-Disposition so browsers download rather than open
-    try:
-        import io
-        s3.upload_fileobj(
-            io.BytesIO(contents),
-            S3_BUCKET,
-            safe_name,
-            ExtraArgs={
-                "ContentType": content_type,
-                "ContentDisposition": f'attachment; filename="{original_name}"'
-            }
-        )
-        file_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{safe_name}"
-    except NoCredentialsError:
-        raise HTTPException(status_code=500, detail="AWS credentials not found for S3 upload.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload file to S3: {e}")
+    file_url = _upload_to_supabase(contents, safe_name, content_type)
     if not sender:
         sender = detect_device(request)
-    message = Message(
-        sender=sender,
-        text=text,
-        image_url="",
-        file_url=file_url,
-        file_name=original_name,
-        timestamp=datetime.now().isoformat(timespec="seconds"),
-        user_id=user['sub']
-    )
-    item = {k: v for k, v in message.dict().items() if v != ""}
-    item["id"] = str(uuid.uuid4())
-    if not table:
-        raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")
-    try:
-        table.put_item(Item=item)
-    except ClientError as e:
-        raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
+    item = {
+        "id": str(uuid.uuid4()),
+        "sender": sender,
+        "text": text,
+        "file_url": file_url,
+        "file_name": original_name,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "user_id": user['sub']
+    }
+    _supabase_insert(item)
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
-# Retrieve messages for the current user from DynamoDB (sorted by timestamp descending, limit 100)
+# Retrieve messages for the current user from Supabase (last 100, ascending order)
 @app.get("/messages")
 def get_messages(request: Request):
     user = get_current_user(request)
-    if not table:
-        print("[ERROR] DynamoDB table is not initialized.", file=sys.stderr)
-        raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
     try:
-        resp = table.scan()
-        items = resp.get("Items", [])
-        # Filter by user_id
-        items = [item for item in items if item.get("user_id") == user['sub']]
-        # Sort by timestamp descending, then return most recent 100
-        items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        messages = [
-            {k: v for k, v in item.items() if k in ["sender", "text", "image_url", "file_url", "file_name", "timestamp"]}
-            for item in items[:100]
-        ]
-    except ClientError as e:
-        print(f"[ERROR] DynamoDB error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
-    return {"messages": messages[::-1]}  # Return in ascending order
+        resp = (
+            supabase.table("messages")
+            .select("sender,text,image_url,file_url,file_name,timestamp")
+            .eq("user_id", user['sub'])
+            .order("timestamp", desc=False)
+            .limit(100)
+            .execute()
+        )
+        return {"messages": resp.data}
+    except Exception as e:
+        print(f"[ERROR] Supabase query error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
