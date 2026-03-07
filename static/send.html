@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>mbl2pc</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="mbl2pc">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -130,6 +136,27 @@
         }
         header .btn-icon:hover { opacity: 1; background: rgba(255,255,255,.12); }
 
+        /* ─── Search bar ─── */
+        #searchBar {
+            flex-shrink: 0;
+            background: var(--surface);
+            border-bottom: 1px solid var(--input-border);
+            padding: 0.5rem 0.75rem;
+            display: none;
+        }
+        #searchBar input {
+            width: 100%;
+            border: 1px solid var(--input-border);
+            border-radius: 20px;
+            padding: 0.4rem 1rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            background: var(--input-bg);
+            color: var(--recv-text);
+            outline: none;
+        }
+        #searchBar input:focus { border-color: var(--header-from); }
+
         /* ─── Chat area ─── */
         #chat {
             flex: 1;
@@ -198,6 +225,68 @@
             display: block;
             object-fit: cover;
         }
+
+        /* ─── Copy button on bubbles ─── */
+        .bubble-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 3px;
+            gap: 0.3rem;
+            opacity: 0;
+            transition: opacity .15s;
+        }
+        .bubble:hover .bubble-actions { opacity: 1; }
+        .bubble-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            color: inherit;
+            opacity: 0.6;
+            transition: opacity .15s, background .15s;
+        }
+        .bubble-actions button:hover { opacity: 1; background: rgba(0,0,0,.08); }
+        .bubble.sent .bubble-actions button:hover { background: rgba(255,255,255,.15); }
+
+        /* ─── URL link card ─── */
+        .url-card {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0,0,0,.06);
+            border-radius: 8px;
+            padding: 0.4rem 0.6rem;
+            margin-top: 4px;
+            text-decoration: none;
+            color: inherit;
+            font-size: 0.82rem;
+            border-left: 3px solid var(--header-from);
+            word-break: break-all;
+            transition: background .15s;
+        }
+        .bubble.sent .url-card { background: rgba(255,255,255,.15); border-left-color: rgba(255,255,255,.6); }
+        .url-card:hover { background: rgba(0,0,0,.1); }
+        .bubble.sent .url-card:hover { background: rgba(255,255,255,.25); }
+        .url-card .url-icon { font-size: 1rem; flex-shrink: 0; }
+        .url-card .url-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* ─── Code block ─── */
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            margin-top: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        [data-theme="light"] .bubble.sent .code-block { background: rgba(255,255,255,.2); color: #fff; }
 
         /* ─── File card ─── */
         .file-card {
@@ -402,6 +491,12 @@
                 <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
             </svg>
         </button>
+        <!-- Search -->
+        <button class="btn-icon" id="searchToggle" title="Search messages" aria-label="Search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+        </button>
         <!-- Logout -->
         <button class="btn-icon" id="logoutBtn" title="Logout" aria-label="Logout" onclick="window.location.href='/logout'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -411,6 +506,11 @@
             </svg>
         </button>
     </header>
+
+    <!-- Search bar -->
+    <div id="searchBar">
+        <input type="search" id="searchInput" placeholder="Search messages…" autocomplete="off">
+    </div>
 
     <!-- Chat messages -->
     <div id="spinner">
@@ -585,12 +685,52 @@
     }
 
     let lastMsgCount = 0;
-    function renderMessages(messages) {
+    let allMessages = [];
+
+    // ── Text rendering helpers ─────────────────────────────────────────
+    const URL_REGEX = /https?:\/\/[^\s<>"]+/g;
+    const CODE_REGEX = /^```[\s\S]*```$|^\s*[\{\[]/;
+
+    function renderText(text) {
+        if (!text) return '';
+        // Code block
+        const stripped = text.replace(/^```|```$/g, '').trim();
+        if (/^```[\s\S]*```$/.test(text.trim())) {
+            return `<div class="code-block">${esc(stripped)}</div>`;
+        }
+        // URL detection — split text around URLs
+        const parts = [];
+        let last = 0;
+        let match;
+        URL_REGEX.lastIndex = 0;
+        while ((match = URL_REGEX.exec(text)) !== null) {
+            if (match.index > last) parts.push(`<span class="text">${esc(text.slice(last, match.index))}</span>`);
+            const url = match[0];
+            let domain = '';
+            try { domain = new URL(url).hostname.replace('www.',''); } catch(_) { domain = url; }
+            parts.push(`<a class="url-card" href="${esc(url)}" target="_blank" rel="noopener"><span class="url-icon">🔗</span><span class="url-text">${esc(domain)}</span></a>`);
+            last = match.index + url.length;
+        }
+        if (last < text.length) parts.push(`<span class="text">${esc(text.slice(last))}</span>`);
+        return parts.length ? parts.join('') : `<span class="text">${esc(text)}</span>`;
+    }
+
+    function copyBubbleText(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '✓';
+            setTimeout(() => { btn.textContent = '⧉'; }, 1200);
+        }).catch(() => toast('Copy failed', 'error'));
+    }
+
+    function renderMessages(messages, filter = '') {
         const chat = document.getElementById('chat');
-        if (messages.length === lastMsgCount && lastMsgCount > 0) return; // no change
-        lastMsgCount = messages.length;
+        const filtered = filter
+            ? messages.filter(m => (m.text || m.file_name || '').toLowerCase().includes(filter.toLowerCase()))
+            : messages;
+        if (!filter && filtered.length === lastMsgCount && lastMsgCount > 0) return;
+        if (!filter) lastMsgCount = messages.length;
         chat.innerHTML = '';
-        messages.forEach(m => {
+        filtered.forEach(m => {
             const div = document.createElement('div');
             const isMe = (m.sender || '').toLowerCase() === deviceName.toLowerCase();
             div.className = 'bubble ' + (isMe ? 'sent' : 'received');
@@ -599,34 +739,42 @@
                 div.style.background = p.bg;
                 div.style.borderColor = p.border;
             }
-            let html = `<span class="sender">${esc(m.sender || 'unknown')}</span>`;
+            let inner = `<span class="sender">${esc(m.sender || 'unknown')}</span>`;
             // Image
-            if (m.image_url) {
-                html += `<img src="${esc(m.image_url)}" loading="lazy" alt="image">`;
-            }
+            if (m.image_url) inner += `<img src="${esc(m.image_url)}" loading="lazy" alt="image">`;
             // General file
             if (m.file_url) {
                 const fname = m.file_name || 'file';
                 if (isImage(fname)) {
-                    html += `<img src="${esc(m.file_url)}" loading="lazy" alt="${esc(fname)}">`;
+                    inner += `<img src="${esc(m.file_url)}" loading="lazy" alt="${esc(fname)}">`;
                 } else {
-                    html += `<a class="file-card" href="${esc(m.file_url)}" target="_blank" rel="noopener">
+                    inner += `<a class="file-card" href="${esc(m.file_url)}" target="_blank" rel="noopener">
                         <span class="file-icon">${fileIcon(fname)}</span>
-                        <span class="file-info">
-                            <span class="fname">${esc(fname)}</span>
-                            <span class="fhint">Tap to download</span>
-                        </span>
+                        <span class="file-info"><span class="fname">${esc(fname)}</span><span class="fhint">Tap to download</span></span>
                     </a>`;
                 }
             }
-            // Text
-            if (m.text) html += `<span class="text">${esc(m.text)}</span>`;
-            html += `<span class="timestamp">${esc((m.timestamp || '').replace('T', ' '))}</span>`;
-            div.innerHTML = html;
+            // Text with URL/code detection
+            if (m.text) inner += renderText(m.text);
+            inner += `<span class="timestamp">${esc((m.timestamp || '').replace('T', ' '))}</span>`;
+            // Copy button
+            const copyText = m.text || m.file_name || '';
+            if (copyText) {
+                inner += `<div class="bubble-actions"><button title="Copy" onclick="copyBubble(this, ${JSON.stringify(copyText)})">⧉ copy</button></div>`;
+            }
+            div.innerHTML = inner;
             chat.appendChild(div);
         });
         setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
     }
+
+    window.copyBubble = function(btn, text) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '✓ copied';
+            setTimeout(() => { btn.textContent = '⧉ copy'; }, 1200);
+        }).catch(() => toast('Copy failed', 'error'));
+    };
+
 
     function esc(str) {
         return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -639,12 +787,26 @@
             const data = await res.json();
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('chat').style.display = 'flex';
-            renderMessages(data.messages || []);
+            allMessages = data.messages || [];
+            const q = document.getElementById('searchInput').value.trim();
+            renderMessages(allMessages, q);
         } catch (_) {
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('chat').style.display = 'flex';
         }
     }
+
+    // ── Search ─────────────────────────────────────────────────────────
+    document.getElementById('searchToggle').addEventListener('click', () => {
+        const bar = document.getElementById('searchBar');
+        const open = bar.style.display === 'block';
+        bar.style.display = open ? 'none' : 'block';
+        if (!open) document.getElementById('searchInput').focus();
+        else { document.getElementById('searchInput').value = ''; renderMessages(allMessages); }
+    });
+    document.getElementById('searchInput').addEventListener('input', e => {
+        renderMessages(allMessages, e.target.value.trim());
+    });
 
     // ── Attachment handling ────────────────────────────────────────────
     let attachedFile = null;
@@ -771,6 +933,20 @@
     loadVersion();
     fetchMessages();
     setInterval(fetchMessages, 3000);
+
+    // ── PWA Share Target — pre-fill input if opened via OS Share Sheet ──
+    (function handleShareTarget() {
+        const p = new URLSearchParams(window.location.search);
+        const shared = [p.get('text'), p.get('url'), p.get('title')].filter(Boolean).join(' ').trim();
+        if (shared) {
+            document.getElementById('msgInput').value = shared;
+            document.getElementById('msgInput').style.height = 'auto';
+            document.getElementById('msgInput').style.height =
+                Math.min(document.getElementById('msgInput').scrollHeight, 120) + 'px';
+            // Clean the URL so refreshing doesn't re-send
+            window.history.replaceState({}, '', '/send.html');
+        }
+    })();
     </script>
 </body>
 </html>
