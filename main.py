@@ -1,4 +1,3 @@
-
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -41,8 +40,6 @@ else:
     )
 
 
-
-
 def get_current_user(request: Request):
     try:
         user = request.session.get('user')
@@ -58,7 +55,6 @@ def get_current_user(request: Request):
     return user
 
 
-
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -67,12 +63,9 @@ from datetime import datetime
 import shutil
 from botocore.exceptions import NoCredentialsError
 
-
-
 import boto3
 import uuid
 from botocore.exceptions import ClientError
-
 
 from starlette.middleware.sessions import SessionMiddleware
 app = FastAPI()
@@ -92,6 +85,11 @@ APP_VERSION = get_git_version()
 @app.get("/version")
 def version():
     return {"version": APP_VERSION}
+
+# Health check endpoint (used by Render and UptimeRobot keep-alive pings)
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 # Allow all CORS for testing (so your phone can access it)
 app.add_middleware(
@@ -157,11 +155,23 @@ def logout(request: Request):
     request.session.clear()
     return RedirectResponse('/login')
 
+# Current user profile (for UI avatar/name display)
+@app.get('/me')
+def me(request: Request):
+    user = get_current_user(request)
+    return {
+        'name': user.get('name', ''),
+        'email': user.get('email', ''),
+        'picture': user.get('picture', '')
+    }
+
 
 class Message(BaseModel):
     sender: str
     text: str = ""
     image_url: str = ""
+    file_url: str = ""
+    file_name: str = ""
     timestamp: str
     user_id: str
 
@@ -188,11 +198,29 @@ def read_root():
     return {"message": "Hello from mbl2pc!"}
 
 
+def detect_device(request: Request) -> str:
+    """Detect device type from User-Agent string."""
+    ua = request.headers.get("user-agent", "")
+    if "iPad" in ua:
+        return "iPad"
+    if "iPhone" in ua:
+        return "iPhone"
+    if "Android" in ua:
+        return "Android"
+    if "CrOS" in ua:
+        return "Chromebook"
+    if "Macintosh" in ua or "Mac OS X" in ua:
+        return "Mac"
+    if "Windows" in ua:
+        return "PC"
+    if "Linux" in ua:
+        return "Linux"
+    return "unknown"
+
 
 # Text message endpoint (DynamoDB)
-
 @app.post("/send")
-async def send_message(request: Request, msg: str = Form(""), sender: str = Form("unknown")):
+async def send_message(request: Request, msg: str = Form(""), sender: str = Form("")):
     try:
         user = get_current_user(request)
     except HTTPException as e:
@@ -202,21 +230,14 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         print(f"[ERROR] Unexpected error in get_current_user: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         raise HTTPException(status_code=500, detail="Internal error authenticating user.")
-    # Use sender from param or guess
-    if sender == "unknown":
-        ua = request.headers.get("user-agent", "")
-        if "iPhone" in ua:
-            sender = "iPhone"
-        elif "Android" in ua:
-            sender = "Android"
-        elif "Windows" in ua:
-            sender = "PC"
-        else:
-            sender = "unknown"
+    if not sender:
+        sender = detect_device(request)
     message = Message(
         sender=sender,
         text=msg,
         image_url="",
+        file_url="",
+        file_name="",
         timestamp=datetime.now().isoformat(timespec="seconds"),
         user_id=user['sub']
     )
@@ -238,15 +259,12 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
     return {"status": "Message received"}
 
 
-
-
 # Image upload endpoint with optional text (DynamoDB)
-
 @app.post("/send-image")
 async def send_image(
     request: Request,
     file: UploadFile = File(...),
-    sender: str = Form("unknown"),
+    sender: str = Form(""),
     text: str = Form("")
 ):
     user = get_current_user(request)
@@ -260,7 +278,7 @@ async def send_image(
     if ext not in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
         raise HTTPException(status_code=400, detail="Unsupported file type.")
     fname = f"img_{datetime.now().strftime('%Y%m%d%H%M%S%f')}{ext}"
-    # Upload to S3 instead of local storage
+    # Upload to S3
     try:
         file.file.seek(0)
         s3.upload_fileobj(
@@ -274,21 +292,14 @@ async def send_image(
         raise HTTPException(status_code=500, detail="AWS credentials not found for S3 upload.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload image to S3: {e}")
-    # Use sender from param or guess
-    if sender == "unknown":
-        ua = request.headers.get("user-agent", "")
-        if "iPhone" in ua:
-            sender = "iPhone"
-        elif "Android" in ua:
-            sender = "Android"
-        elif "Windows" in ua:
-            sender = "PC"
-        else:
-            sender = "unknown"
+    if not sender:
+        sender = detect_device(request)
     message = Message(
         sender=sender,
         text=text,
         image_url=image_url,
+        file_url="",
+        file_name="",
         timestamp=datetime.now().isoformat(timespec="seconds"),
         user_id=user['sub']
     )
@@ -304,8 +315,65 @@ async def send_image(
         raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
     return {"status": "Image received", "image_url": image_url}
 
-# Note: Local static/images/ storage is now deprecated for new uploads. Images are stored in S3.
 
+# General file upload endpoint (any file type)
+MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+
+@app.post("/send-file")
+async def send_file(
+    request: Request,
+    file: UploadFile = File(...),
+    sender: str = Form(""),
+    text: str = Form("")
+):
+    user = get_current_user(request)
+    if not file or not hasattr(file, "filename") or not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded.")
+    original_name = file.filename
+    ext = os.path.splitext(original_name)[1].lower()
+    # Read file contents for size check
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File exceeds 25 MB limit.")
+    safe_name = f"file_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{original_name}"
+    content_type = file.content_type or "application/octet-stream"
+    # Upload to S3 with Content-Disposition so browsers download rather than open
+    try:
+        import io
+        s3.upload_fileobj(
+            io.BytesIO(contents),
+            S3_BUCKET,
+            safe_name,
+            ExtraArgs={
+                "ContentType": content_type,
+                "ContentDisposition": f'attachment; filename="{original_name}"'
+            }
+        )
+        file_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{safe_name}"
+    except NoCredentialsError:
+        raise HTTPException(status_code=500, detail="AWS credentials not found for S3 upload.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file to S3: {e}")
+    if not sender:
+        sender = detect_device(request)
+    message = Message(
+        sender=sender,
+        text=text,
+        image_url="",
+        file_url=file_url,
+        file_name=original_name,
+        timestamp=datetime.now().isoformat(timespec="seconds"),
+        user_id=user['sub']
+    )
+    item = message.dict()
+    item["id"] = str(uuid.uuid4())
+    if not table:
+        raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")
+    try:
+        table.put_item(Item=item)
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"DynamoDB error: {e}")
+    return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
 # Retrieve messages for the current user from DynamoDB (sorted by timestamp descending, limit 100)
@@ -323,7 +391,7 @@ def get_messages(request: Request):
         # Sort by timestamp descending, then return most recent 100
         items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         messages = [
-            {k: v for k, v in item.items() if k in ["sender", "text", "image_url", "timestamp"]}
+            {k: v for k, v in item.items() if k in ["sender", "text", "image_url", "file_url", "file_name", "timestamp"]}
             for item in items[:100]
         ]
     except ClientError as e:
