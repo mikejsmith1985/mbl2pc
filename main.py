@@ -194,7 +194,7 @@ if not os.path.exists("static/images"):
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello from mbl2pc!"}
+    return RedirectResponse('/send.html')
 
 
 def detect_device(request: Request) -> str:
