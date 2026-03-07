@@ -247,7 +247,7 @@ def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
 
 # Text message endpoint
 @app.post("/send")
-async def send_message(request: Request, msg: str = Form(""), sender: str = Form("")):
+async def send_message(request: Request, msg: str = Form(""), sender: str = Form(""), expires_hours: int = Form(0)):
     try:
         user = get_current_user(request)
     except HTTPException as e:
@@ -266,6 +266,9 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "user_id": user['sub']
     }
+    if expires_hours > 0:
+        from datetime import timedelta
+        item["expires_at"] = (datetime.now() + timedelta(hours=expires_hours)).isoformat(timespec="seconds")
     _supabase_insert(item)
     return {"status": "Message received"}
 
@@ -339,22 +342,114 @@ async def send_file(
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
-# Retrieve messages for the current user from Supabase (last 100, ascending order)
+# Retrieve messages for the current user from Supabase
 @app.get("/messages")
-def get_messages(request: Request):
+def get_messages(request: Request, q: str = ""):
     user = get_current_user(request)
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase is not configured.")
     try:
-        resp = (
+        query = (
             supabase.table("messages")
-            .select("sender,text,image_url,file_url,file_name,timestamp")
+            .select("id,sender,text,image_url,file_url,file_name,timestamp,starred,expires_at")
             .eq("user_id", user['sub'])
             .order("timestamp", desc=False)
-            .limit(100)
-            .execute()
         )
-        return {"messages": resp.data}
+        if q:
+            query = query.ilike("text", f"%{q}%")
+        else:
+            query = query.limit(100)
+        resp = query.execute()
+        now = datetime.now().isoformat()
+        messages = []
+        for m in resp.data:
+            ea = m.get('expires_at')
+            if ea and ea <= now:
+                continue  # skip expired
+            messages.append({
+                'id': m.get('id', ''),
+                'sender': m.get('sender', ''),
+                'text': m.get('text') or '',
+                'image_url': m.get('image_url') or '',
+                'file_url': m.get('file_url') or '',
+                'file_name': m.get('file_name') or '',
+                'timestamp': m.get('timestamp', ''),
+                'starred': bool(m.get('starred', False)),
+            })
+        return {"messages": messages}
     except Exception as e:
         print(f"[ERROR] Supabase query error: {e}", file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# Toggle star on a message
+@app.patch("/messages/{msg_id}/star")
+def star_message(msg_id: str, request: Request):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        resp = supabase.table("messages").select("starred").eq("id", msg_id).eq("user_id", user['sub']).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Message not found.")
+        current = bool(resp.data[0].get('starred', False))
+        supabase.table("messages").update({"starred": not current}).eq("id", msg_id).eq("user_id", user['sub']).execute()
+        return {"starred": not current}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# Delete a message
+@app.delete("/messages/{msg_id}")
+def delete_message(msg_id: str, request: Request):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        supabase.table("messages").delete().eq("id", msg_id).eq("user_id", user['sub']).execute()
+        return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# Snippets: list
+@app.get("/snippets")
+def get_snippets(request: Request):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        resp = supabase.table("snippets").select("id,name,content,created_at").eq("user_id", user['sub']).order("created_at").execute()
+        return {"snippets": resp.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# Snippets: create
+@app.post("/snippets")
+async def add_snippet(request: Request, name: str = Form(""), content: str = Form("")):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    if not name.strip() or not content.strip():
+        raise HTTPException(status_code=400, detail="Name and content are required.")
+    try:
+        resp = supabase.table("snippets").insert({"user_id": user['sub'], "name": name.strip(), "content": content.strip()}).execute()
+        return {"snippet": resp.data[0] if resp.data else {}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# Snippets: delete
+@app.delete("/snippets/{snippet_id}")
+def delete_snippet(snippet_id: str, request: Request):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        supabase.table("snippets").delete().eq("id", snippet_id).eq("user_id", user['sub']).execute()
+        return {"status": "deleted"}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
