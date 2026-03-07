@@ -1,6 +1,11 @@
 {
+  "scripts": {
+    "test:cypress": "cypress run",
+    "test:cypress:open": "cypress open"
+  },
   "devDependencies": {
     "@playwright/test": "^1.54.2",
+    "cypress": "^15.11.0",
     "playwright": "^1.54.2"
   }
 }
