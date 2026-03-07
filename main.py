@@ -241,7 +241,7 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         timestamp=datetime.now().isoformat(timespec="seconds"),
         user_id=user['sub']
     )
-    item = message.dict()
+    item = {k: v for k, v in message.dict().items() if v != ""}
     item["id"] = str(uuid.uuid4())
     if not table:
         print("[ERROR] DynamoDB table is not initialized.", file=sys.stderr)
@@ -303,7 +303,7 @@ async def send_image(
         timestamp=datetime.now().isoformat(timespec="seconds"),
         user_id=user['sub']
     )
-    item = message.dict()
+    item = {k: v for k, v in message.dict().items() if v != ""}
     item["id"] = str(uuid.uuid4())
     if not table:
         print("[ERROR] DynamoDB table is not initialized.", file=sys.stderr)
@@ -365,7 +365,7 @@ async def send_file(
         timestamp=datetime.now().isoformat(timespec="seconds"),
         user_id=user['sub']
     )
-    item = message.dict()
+    item = {k: v for k, v in message.dict().items() if v != ""}
     item["id"] = str(uuid.uuid4())
     if not table:
         raise HTTPException(status_code=500, detail="DynamoDB table is not initialized.")

@@ -691,9 +691,18 @@
             fd.append('msg', text);
             fd.append('sender', deviceName);
             const res = await fetch(API + '/send', { method: 'POST', body: fd });
-            if (!res.ok) { toast('Send failed', 'error'); return; }
+            if (!res.ok) {
+                let detail = `Error ${res.status}`;
+                try { const d = await res.json(); detail = d.detail || detail; } catch (_) {}
+                console.error('[mbl2pc] /send failed:', detail);
+                toast(detail, 'error');
+                return;
+            }
             toast('Sent!');
-        } catch (_) { toast('Send failed', 'error'); }
+        } catch (err) {
+            console.error('[mbl2pc] /send exception:', err);
+            toast('Send failed — check console', 'error');
+        }
     }
 
     async function sendAttachment(file, caption) {
