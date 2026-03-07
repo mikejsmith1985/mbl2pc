@@ -170,11 +170,12 @@
             align-self: flex-end;
             border-bottom-right-radius: 4px;
         }
+        /* received bubbles get color via inline style (per-device color) */
         .bubble.received {
-            background: var(--recv-bg);
             color: var(--recv-text);
             align-self: flex-start;
             border-bottom-left-radius: 4px;
+            border: 2px solid;
         }
         .bubble .sender {
             font-size: 0.7rem;
@@ -552,6 +553,37 @@
         return '📎';
     }
 
+    // ── Per-device color palette ───────────────────────────────────────
+    // Deterministically pick a pastel bg + border color from the sender name
+    const DEVICE_PALETTES = [
+        { bg: '#fef3c7', border: '#f59e0b' }, // amber
+        { bg: '#d1fae5', border: '#10b981' }, // emerald
+        { bg: '#fce7f3', border: '#ec4899' }, // pink
+        { bg: '#e0e7ff', border: '#6366f1' }, // indigo-light
+        { bg: '#ffedd5', border: '#f97316' }, // orange
+        { bg: '#f0fdf4', border: '#22c55e' }, // green
+        { bg: '#fdf2f8', border: '#a855f7' }, // purple
+        { bg: '#fff1f2', border: '#f43f5e' }, // rose
+    ];
+    // Dark-mode equivalents (semi-transparent versions)
+    const DEVICE_PALETTES_DARK = [
+        { bg: '#451a03', border: '#f59e0b' },
+        { bg: '#022c22', border: '#10b981' },
+        { bg: '#500724', border: '#ec4899' },
+        { bg: '#1e1b4b', border: '#6366f1' },
+        { bg: '#431407', border: '#f97316' },
+        { bg: '#052e16', border: '#22c55e' },
+        { bg: '#2e1065', border: '#a855f7' },
+        { bg: '#4c0519', border: '#f43f5e' },
+    ];
+    function senderPalette(name) {
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffff;
+        const idx = hash % DEVICE_PALETTES.length;
+        const dark = html.getAttribute('data-theme') === 'dark';
+        return dark ? DEVICE_PALETTES_DARK[idx] : DEVICE_PALETTES[idx];
+    }
+
     let lastMsgCount = 0;
     function renderMessages(messages) {
         const chat = document.getElementById('chat');
@@ -560,7 +592,13 @@
         chat.innerHTML = '';
         messages.forEach(m => {
             const div = document.createElement('div');
-            div.className = 'bubble sent'; // all messages belong to the logged-in user
+            const isMe = (m.sender || '').toLowerCase() === deviceName.toLowerCase();
+            div.className = 'bubble ' + (isMe ? 'sent' : 'received');
+            if (!isMe) {
+                const p = senderPalette(m.sender || 'unknown');
+                div.style.background = p.bg;
+                div.style.borderColor = p.border;
+            }
             let html = `<span class="sender">${esc(m.sender || 'unknown')}</span>`;
             // Image
             if (m.image_url) {
