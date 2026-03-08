@@ -76,8 +76,8 @@
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
         /* Calendar picker (hidden native input used as trigger) */
-        #calendarInput{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;top:0;left:0}
-        #calendarBtn{position:relative}
+        #calendarInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none;padding:0;margin:0}
+        #calendarBtn{position:relative;overflow:hidden}
 
         /* Chat */
         #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
@@ -610,9 +610,9 @@
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
         lastMsgCount = 0;
-        // Update calendar input value to match
         const cal = document.getElementById('calendarInput');
         cal.value = dateStr;
+        cal.style.pointerEvents = 'none'; // let button clicks through to clear filter
         document.getElementById('calendarBtn').classList.add('active');
         fetchMessages('', dateStr);
         toast(`Showing ${fmtDateLabel(dateStr + 'T12:00:00')}`);
@@ -620,7 +620,9 @@
 
     function clearDateFilter() {
         activeDateFilter = '';
-        document.getElementById('calendarInput').value = '';
+        const cal = document.getElementById('calendarInput');
+        cal.value = '';
+        cal.style.pointerEvents = ''; // restore overlay so tapping opens picker
         document.getElementById('calendarBtn').classList.remove('active');
         lastMsgCount = 0;
         fetchMessages();
@@ -632,13 +634,9 @@
         if (date) jumpToDate(date);
         else clearDateFilter();
     });
+    // Only handles "clear" — when filter active, input pointer-events:none lets this fire
     document.getElementById('calendarBtn').addEventListener('click', () => {
-        if (activeDateFilter) {
-            clearDateFilter();
-            return;
-        }
-        const cal = document.getElementById('calendarInput');
-        try { cal.showPicker(); } catch(_) { cal.click(); }
+        if (activeDateFilter) clearDateFilter();
     });
 
     // ── Search ─────────────────────────────────────────────────────────
