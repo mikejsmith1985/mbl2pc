@@ -608,3 +608,60 @@ def _notify_other_devices(user_id: str, sender: str, text_preview: str):
             _send_push_notification(sub, f"mbl2pc — {sender}", preview)
     except Exception as e:
         print(f"[WARN] Push notify error: {e}", file=sys.stderr)
+
+
+# ── Server-to-server Webhook (no OAuth required) ────────────────────────────────
+# Used by external tools (e.g. Forge Terminal) to deliver notifications.
+# Set WEBHOOK_SECRET and WEBHOOK_USER_ID environment variables on Render.
+
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+WEBHOOK_USER_ID = os.environ.get("WEBHOOK_USER_ID", "")  # Google 'sub' of the target user
+
+
+class WebhookPayload(BaseModel):
+    text: str
+    token: str
+    sender: str = "Forge Terminal"
+
+
+@app.post("/webhook")
+async def webhook_notify(payload: WebhookPayload):
+    """
+    Receive a notification from a trusted server-side caller (e.g. Forge Terminal).
+    Inserts a message into Supabase and sends a Web Push to all registered devices
+    for WEBHOOK_USER_ID.
+
+    Requires:
+      - WEBHOOK_SECRET env var set (token must match)
+      - WEBHOOK_USER_ID env var set (target user's Google sub)
+      - Supabase configured
+    """
+    if not WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook not configured on server (missing WEBHOOK_SECRET).")
+    if not WEBHOOK_USER_ID:
+        raise HTTPException(status_code=503, detail="Webhook not configured on server (missing WEBHOOK_USER_ID).")
+    if payload.token != WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid token.")
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase is not configured.")
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required.")
+
+    # Insert message into Supabase as the target user
+    try:
+        supabase.table("messages").insert({
+            "id": str(uuid.uuid4()),
+            "sender": payload.sender,
+            "text": text,
+            "timestamp": datetime.utcnow().isoformat(),
+            "user_id": WEBHOOK_USER_ID,
+        }).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+    # Fire Web Push to all registered devices for this user
+    _notify_other_devices(WEBHOOK_USER_ID, payload.sender, text)
+
+    return {"status": "delivered"}
