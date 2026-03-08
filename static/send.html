@@ -76,8 +76,8 @@
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
         /* Calendar picker (hidden native input used as trigger) */
-        #calendarInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none;padding:0;margin:0}
-        #calendarBtn{position:relative;overflow:hidden}
+        #calendarInput{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden;top:0;left:0}
+        #calendarBtn{position:relative}
 
         /* Chat */
         #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
@@ -232,7 +232,7 @@
         </button>
         <button class="btn-icon" id="calendarBtn" title="Jump to date" aria-label="Browse by date">
             <input type="date" id="calendarInput" title="Pick a date">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="pointer-events:none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
                 <line x1="3" y1="10" x2="21" y2="10"/>
@@ -325,8 +325,8 @@
     <!-- Notification blocked help modal -->
     <div id="notifModal" role="dialog" aria-modal="true">
         <div class="notif-card">
-            <h3>🔔 Notifications are blocked</h3>
-            <p>Your browser has blocked notifications for this site. Here's how to fix it:</p>
+            <h3 id="notifModalTitle">🔔 Notifications need setup</h3>
+            <p id="notifModalDesc">Follow the steps below to enable notifications on this device.</p>
             <div id="notifSteps"></div>
             <div class="notif-actions">
                 <button class="btn-secondary" id="notifModalClose">Dismiss</button>
@@ -632,11 +632,13 @@
         if (date) jumpToDate(date);
         else clearDateFilter();
     });
-    // Clicking the button when already filtering clears it (tap the SVG area outside the input)
-    document.getElementById('calendarBtn').addEventListener('click', e => {
-        if (e.target === e.currentTarget || e.target.tagName === 'svg' || e.target.tagName === 'line' || e.target.tagName === 'rect') {
-            if (activeDateFilter) clearDateFilter();
+    document.getElementById('calendarBtn').addEventListener('click', () => {
+        if (activeDateFilter) {
+            clearDateFilter();
+            return;
         }
+        const cal = document.getElementById('calendarInput');
+        try { cal.showPicker(); } catch(_) { cal.click(); }
     });
 
     // ── Search ─────────────────────────────────────────────────────────
@@ -916,7 +918,8 @@
             <li>Reload the page and tap the bell again</li></ol>`;
     }
 
-    function showNotifBlockedModal() {
+    function showNotifBlockedModal(title) {
+        document.getElementById('notifModalTitle').textContent = title || '🔔 Notifications need setup';
         document.getElementById('notifSteps').innerHTML = getUnblockInstructions();
         document.getElementById('notifModal').classList.add('open');
     }
@@ -950,7 +953,7 @@
 
     async function subscribeToPush() {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            showNotifBlockedModal(); return;  // show instructions (e.g. install as PWA on iOS)
+            showNotifBlockedModal('🔔 Install the app for notifications'); return;
         }
         // Already subscribed — toggle off
         if (localStorage.getItem('push_subscribed') === '1' && Notification.permission === 'granted') {
@@ -958,11 +961,11 @@
         }
         // Already blocked at OS level — show help
         if (Notification.permission === 'denied') {
-            showNotifBlockedModal(); return;
+            showNotifBlockedModal('🔔 Notifications are blocked'); return;
         }
         // Request permission
         const perm = await Notification.requestPermission();
-        if (perm === 'denied') { showNotifBlockedModal(); return; }
+        if (perm === 'denied') { showNotifBlockedModal('🔔 Notifications are blocked'); return; }
         if (perm !== 'granted') return; // user dismissed — do nothing
         try {
             const reg = await navigator.serviceWorker.ready;
