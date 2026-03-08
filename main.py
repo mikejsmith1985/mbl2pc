@@ -66,6 +66,55 @@ from starlette.middleware.sessions import SessionMiddleware
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY", "change-this-key"))
 
+
+# ── Auto-migration on startup ──────────────────────────────────────────────────
+MIGRATIONS = [
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS starred BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TEXT DEFAULT NULL",
+    """CREATE TABLE IF NOT EXISTS snippets (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id TEXT NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        keys JSONB NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+]
+
+@app.on_event("startup")
+def run_migrations():
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        print("[INFO] DATABASE_URL not set — skipping auto-migration. Add it to run schema changes automatically.", file=sys.stderr)
+        return
+    try:
+        import psycopg2
+        # psycopg2 needs postgresql:// not postgres://
+        conn_str = db_url.replace("postgres://", "postgresql://", 1)
+        conn = psycopg2.connect(conn_str)
+        conn.autocommit = True
+        cur = conn.cursor()
+        for sql in MIGRATIONS:
+            try:
+                cur.execute(sql)
+                print(f"[MIGRATION] OK: {sql[:60]}…", file=sys.stderr)
+            except Exception as e:
+                print(f"[MIGRATION] Skipped ({e}): {sql[:60]}…", file=sys.stderr)
+        cur.close()
+        conn.close()
+        print("[MIGRATION] All done.", file=sys.stderr)
+    except ImportError:
+        print("[WARN] psycopg2 not installed — cannot run auto-migration.", file=sys.stderr)
+    except Exception as e:
+        print(f"[WARN] Auto-migration failed (non-fatal): {e}", file=sys.stderr)
+
+
 # Expose git commit hash as version
 import subprocess
 def get_git_version():

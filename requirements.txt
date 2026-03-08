@@ -9,3 +9,4 @@ supabase
 itsdangerous
 pytest
 pywebpush
+psycopg2-binary
