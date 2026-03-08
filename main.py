@@ -407,7 +407,7 @@ async def send_file(
 
 # Retrieve messages for the current user from Supabase
 @app.get("/messages")
-def get_messages(request: Request, q: str = ""):
+def get_messages(request: Request, q: str = "", date: str = ""):
     user = get_current_user(request)
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase is not configured.")
@@ -424,6 +424,9 @@ def get_messages(request: Request, q: str = ""):
         )
         if q:
             query = query.ilike("text", f"%{q}%")
+        elif date:
+            # Filter to a specific calendar date (YYYY-MM-DD)
+            query = query.gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
         else:
             query = query.limit(100)
         return query.execute()
