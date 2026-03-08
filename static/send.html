@@ -75,9 +75,14 @@
         .date-sep span:hover{background:var(--header-from);color:#fff;border-color:var(--header-from)}
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
-        /* Calendar picker — full-size transparent overlay so iOS can directly tap the input */
-        #calendarBtn{position:relative;overflow:hidden;clip-path:inset(0)}
-        #calendarInput{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;z-index:1}
+        /* Date picker popover */
+        #datePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:12px;padding:.75rem;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:300;display:none;flex-direction:column;gap:.5rem;min-width:210px}
+        #datePopover.open{display:flex}
+        #datePopover label{font-size:.75rem;font-weight:600;color:var(--meta);text-transform:uppercase;letter-spacing:.04em}
+        #datePickerInput{border:1px solid var(--input-border);border-radius:8px;padding:.4rem .6rem;font-family:inherit;font-size:.9rem;background:var(--input-bg);color:var(--recv-text);outline:none;width:100%;cursor:pointer}
+        #datePickerInput:focus{border-color:var(--header-from)}
+        #datePickerClear{background:none;border:1px solid var(--input-border);border-radius:8px;padding:.3rem .6rem;font-size:.78rem;cursor:pointer;color:var(--meta);text-align:center;transition:border-color .15s,color .15s}
+        #datePickerClear:hover{border-color:#ef4444;color:#ef4444}
 
         /* Chat */
         #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
@@ -230,8 +235,7 @@
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
         </button>
-        <button class="btn-icon" id="calendarBtn" title="Jump to date" aria-label="Browse by date">
-            <input type="date" id="calendarInput" title="Pick a date">
+        <button class="btn-icon" id="calendarBtn" title="Filter by date" aria-label="Browse by date">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
@@ -333,6 +337,13 @@
                 <button class="btn-primary" id="notifModalRetry">Try again</button>
             </div>
         </div>
+    </div>
+
+    <!-- Date picker popover -->
+    <div id="datePopover" role="dialog" aria-label="Filter messages by date">
+        <label for="datePickerInput">Filter by date</label>
+        <input type="date" id="datePickerInput">
+        <button id="datePickerClear">✕ Clear filter</button>
     </div>
 
     <script>
@@ -607,45 +618,60 @@
     }
 
     // ── Calendar date jump ─────────────────────────────────────────────
+    const calendarBtn = document.getElementById('calendarBtn');
+    const datePopover = document.getElementById('datePopover');
+    const datePickerInput = document.getElementById('datePickerInput');
+    const datePickerClear = document.getElementById('datePickerClear');
+
+    datePickerInput.max = new Date().toISOString().slice(0, 10);
+
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
         lastMsgCount = 0;
-        calendarInput.value = dateStr;
         calendarBtn.classList.add('active');
+        datePopover.classList.remove('open');
         fetchMessages('', dateStr);
         toast(`Showing ${fmtDateLabel(dateStr + 'T12:00:00')}`);
     }
 
     function clearDateFilter() {
         activeDateFilter = '';
-        calendarInput.value = '';
-        calendarInput.style.pointerEvents = ''; // re-enable overlay
+        datePickerInput.value = '';
         calendarBtn.classList.remove('active');
+        datePopover.classList.remove('open');
         lastMsgCount = 0;
         fetchMessages();
     }
 
-    calendarInput.max = new Date().toISOString().slice(0, 10);
-
-    calendarInput.addEventListener('change', e => {
-        const date = e.target.value;
-        if (date) {
-            jumpToDate(date);
-            calendarInput.style.pointerEvents = 'none'; // disable overlay; next tap hits button to clear
-        } else {
-            clearDateFilter();
-            calendarInput.style.pointerEvents = ''; // re-enable overlay
-        }
-    });
-
-    // When filter is active, pointer-events:none on input lets this fire to clear the filter
     calendarBtn.addEventListener('click', () => {
         if (activeDateFilter) {
+            // Filter is active: clicking the gold button clears the filter
             clearDateFilter();
-            calendarInput.style.pointerEvents = ''; // re-enable overlay for next use
+        } else {
+            // No filter: toggle the date picker popover open/closed
+            datePopover.classList.toggle('open');
+            if (datePopover.classList.contains('open')) {
+                datePickerInput.focus();
+            }
         }
-        // No active filter: the transparent input overlay directly receives the user's tap → native picker opens
     });
+
+    datePickerInput.addEventListener('change', e => {
+        const date = e.target.value;
+        if (date) jumpToDate(date);
+        else clearDateFilter();
+    });
+
+    datePickerClear.addEventListener('click', () => clearDateFilter());
+
+    // Close popover when clicking outside it
+    document.addEventListener('click', e => {
+        if (datePopover.classList.contains('open') &&
+            !datePopover.contains(e.target) &&
+            !calendarBtn.contains(e.target)) {
+            datePopover.classList.remove('open');
+        }
+    }, true);
 
     // ── Search ─────────────────────────────────────────────────────────
     let searchTimer = null;
@@ -655,7 +681,7 @@
         const q = searchInput.value.trim();
         clearSearch.style.display = q ? '' : 'none';
         // Clear date filter when searching
-        if (q) { activeDateFilter = ''; calendarInput.style.pointerEvents = ''; document.getElementById('calendarBtn').classList.remove('active'); }
+        if (q) { activeDateFilter = ''; datePickerInput.value = ''; document.getElementById('calendarBtn').classList.remove('active'); }
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => { lastMsgCount = 0; fetchMessages(q); }, 350);
     });
@@ -862,8 +888,28 @@
         }
     });
 
-    // ── Push Notifications ─────────────────────────────────────────────
+    // ── Notification bell ──────────────────────────────────────────────
     const notifBtn = document.getElementById('notifBtn');
+
+    // Bell color reflects Notification.permission — independent of push subscription
+    function updateBellState() {
+        if (!('Notification' in window)) {
+            notifBtn.classList.remove('active', 'blocked');
+            notifBtn.title = 'Notifications not supported in this browser';
+            return;
+        }
+        const perm = Notification.permission;
+        notifBtn.classList.remove('active', 'blocked');
+        if (perm === 'granted') {
+            notifBtn.classList.add('active');       // gold
+            notifBtn.title = 'Notifications are on';
+        } else if (perm === 'denied') {
+            notifBtn.classList.add('blocked');      // dimmed
+            notifBtn.title = 'Notifications blocked — tap for help';
+        } else {
+            notifBtn.title = 'Enable notifications';
+        }
+    }
 
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -872,60 +918,74 @@
         return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
     }
 
+    // Silently attempt push subscription in background — never blocks or shows errors to user
+    async function tryPushSubscribe() {
+        try {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+            const reg = await navigator.serviceWorker.ready;
+            const keyRes = await fetch(`${API}/push/vapid-public-key`);
+            if (!keyRes.ok) return;
+            const { public_key } = await keyRes.json();
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(public_key)
+                });
+            }
+            await fetch(`${API}/push/subscribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub.toJSON())
+            });
+        } catch (_) { /* push is a bonus feature — fail silently */ }
+    }
+
     function getUnblockInstructions() {
         const ua = navigator.userAgent;
         const isIOS = /iPad|iPhone|iPod/.test(ua);
         const isAndroid = /Android/.test(ua);
         const isChrome = /Chrome/.test(ua) && !/Edg/.test(ua);
+        const isEdge = /Edg/.test(ua);
         const isFirefox = /Firefox/.test(ua);
-        const isSafari = /Safari/.test(ua) && !isChrome;
-        const noPush = !('PushManager' in window);
+        const isSafari = /Safari/.test(ua) && !isChrome && !isEdge;
 
-        if (isIOS && noPush) {
-            return `<p style="font-size:.82rem;color:var(--meta)">To enable notifications on iPhone/iPad:</p>
+        if (isIOS && isSafari) {
+            return `<p>On iPhone/iPad, notifications require the app to be installed:</p>
                 <ol><li>Tap the <strong>Share</strong> button (□↑) in Safari</li>
                 <li>Tap <strong>Add to Home Screen</strong></li>
                 <li>Open the app from your Home Screen</li>
-                <li>Tap the bell again — notifications will be available</li></ol>`;
-        }
-        if (isIOS && isSafari) {
-            return `<p style="font-size:.82rem;color:var(--meta)">On iPhone/iPad (Safari):</p>
-                <ol><li>Open the <strong>Settings</strong> app</li>
-                <li>Scroll down and tap <strong>Safari</strong></li>
-                <li>Tap <strong>Notifications</strong></li>
-                <li>Find <strong>mbl2pc.onrender.com</strong> and set to <strong>Allow</strong></li>
-                <li>Come back here and tap the bell again</li></ol>`;
+                <li>Tap the bell again</li></ol>
+                <p>Already installed? Go to <strong>Settings → Safari → Notifications</strong> and allow <strong>mbl2pc.onrender.com</strong>.</p>`;
         }
         if (isAndroid && isChrome) {
-            return `<p style="font-size:.82rem;color:var(--meta)">On Android (Chrome):</p>
+            return `<p>On Android Chrome:</p>
                 <ol><li>Tap the <strong>lock icon</strong> in the address bar</li>
-                <li>Tap <strong>Permissions</strong></li>
-                <li>Set <strong>Notifications</strong> to <strong>Allow</strong></li>
+                <li>Tap <strong>Permissions → Notifications → Allow</strong></li>
                 <li>Reload the page and tap the bell again</li></ol>`;
         }
-        if (isChrome) {
-            return `<p style="font-size:.82rem;color:var(--meta)">On Chrome (desktop):</p>
+        if (isChrome || isEdge) {
+            return `<p>In your browser:</p>
                 <ol><li>Click the <strong>lock icon</strong> (🔒) in the address bar</li>
-                <li>Click <strong>Site settings</strong></li>
+                <li>Click <strong>Site settings</strong> or <strong>Permissions</strong></li>
                 <li>Set <strong>Notifications</strong> to <strong>Allow</strong></li>
                 <li>Reload the page and tap the bell again</li></ol>`;
         }
         if (isFirefox) {
-            return `<p style="font-size:.82rem;color:var(--meta)">On Firefox:</p>
-                <ol><li>Click the <strong>shield icon</strong> in the address bar</li>
-                <li>Click <strong>Connection secure → More information</strong></li>
-                <li>Go to <strong>Permissions → Receive Notifications</strong></li>
-                <li>Set to <strong>Allow</strong> and reload</li></ol>`;
+            return `<p>In Firefox:</p>
+                <ol><li>Click the <strong>shield</strong> or <strong>lock</strong> icon in the address bar</li>
+                <li>Go to <strong>Connection secure → More information → Permissions</strong></li>
+                <li>Set <strong>Receive Notifications</strong> to <strong>Allow</strong></li>
+                <li>Reload the page and tap the bell again</li></ol>`;
         }
-        return `<p style="font-size:.82rem;color:var(--meta)">In your browser:</p>
+        return `<p>In your browser:</p>
             <ol><li>Click the <strong>lock / info icon</strong> in the address bar</li>
             <li>Find <strong>Notifications</strong> in site permissions</li>
-            <li>Change it to <strong>Allow</strong></li>
-            <li>Reload the page and tap the bell again</li></ol>`;
+            <li>Set to <strong>Allow</strong> and reload</li></ol>`;
     }
 
-    function showNotifBlockedModal(title) {
-        document.getElementById('notifModalTitle').textContent = title || '🔔 Notifications need setup';
+    function showNotifModal(title) {
+        document.getElementById('notifModalTitle').textContent = title || '🔔 Notifications';
         document.getElementById('notifSteps').innerHTML = getUnblockInstructions();
         document.getElementById('notifModal').classList.add('open');
     }
@@ -939,89 +999,44 @@
     });
     document.getElementById('notifModalRetry').addEventListener('click', () => {
         document.getElementById('notifModal').classList.remove('open');
-        subscribeToPush();
+        notifBtn.click();
     });
 
-    async function unsubscribeFromPush() {
-        try {
-            if ('serviceWorker' in navigator) {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.getSubscription();
-                if (sub) await sub.unsubscribe();
-            }
-        } catch(_) {}
-        notifBtn.classList.remove('active', 'blocked');
-        notifBtn.style.opacity = '';
-        notifBtn.title = 'Enable notifications';
-        localStorage.removeItem('push_subscribed');
-        toast('Notifications disabled');
-    }
+    notifBtn.addEventListener('click', async () => {
+        if (!('Notification' in window)) {
+            toast('Notifications not supported in this browser', 'error');
+            return;
+        }
 
-    async function subscribeToPush() {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            showNotifBlockedModal('🔔 Install the app for notifications'); return;
-        }
-        // Already subscribed — toggle off
-        if (localStorage.getItem('push_subscribed') === '1' && Notification.permission === 'granted') {
-            await unsubscribeFromPush(); return;
-        }
-        // Already blocked at OS level — show help
-        if (Notification.permission === 'denied') {
-            showNotifBlockedModal('🔔 Notifications are blocked'); return;
-        }
-        // Request permission
-        const perm = await Notification.requestPermission();
-        if (perm === 'denied') { showNotifBlockedModal('🔔 Notifications are blocked'); return; }
-        if (perm !== 'granted') { showNotifBlockedModal('🔔 Notifications need setup'); return; }
-        try {
-            const reg = await navigator.serviceWorker.ready;
-            const keyRes = await fetch(`${API}/push/vapid-public-key`);
-            if (!keyRes.ok) { toast('Push not configured on server yet', 'error'); return; }
-            const { public_key } = await keyRes.json();
-            let sub = await reg.pushManager.getSubscription();
-            if (!sub) {
-                sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(public_key)
-                });
-            }
-            const res = await fetch(`${API}/push/subscribe`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sub.toJSON())
-            });
-            if (res.ok) {
-                notifBtn.classList.add('active');
-                notifBtn.title = 'Notifications enabled — tap to disable';
-                localStorage.setItem('push_subscribed', '1');
-                toast('Notifications enabled 🔔');
-            }
-        } catch (e) {
-            console.error('Push subscribe error', e);
-            toast('Failed to enable notifications', 'error');
-        }
-    }
+        const perm = Notification.permission;
 
-    notifBtn.addEventListener('click', subscribeToPush);
+        if (perm === 'denied') {
+            // Cannot request permission again — show unblock instructions
+            showNotifModal('🔔 Notifications are blocked');
 
-    // Restore bell state on load and reflect actual permission state
-    (function syncNotifState() {
-        const stored = localStorage.getItem('push_subscribed') === '1';
-        const perm = ('Notification' in window) ? Notification.permission : 'default';
-        notifBtn.classList.remove('active', 'blocked');
-        notifBtn.style.opacity = '';
-        if (stored && perm === 'granted') {
-            notifBtn.classList.add('active');
-            notifBtn.title = 'Notifications enabled — tap to disable';
-        } else if (perm === 'denied') {
-            notifBtn.classList.add('blocked');
-            notifBtn.title = 'Notifications blocked — tap for help';
-            localStorage.removeItem('push_subscribed');
+        } else if (perm === 'granted') {
+            // Already enabled — confirm and offer push setup
+            toast('Notifications are already enabled ✓');
+            tryPushSubscribe();
+
         } else {
-            notifBtn.title = 'Enable notifications';
-            if (stored) localStorage.removeItem('push_subscribed');
+            // 'default' — ask the user
+            const result = await Notification.requestPermission();
+            updateBellState();          // update color immediately after dialog
+
+            if (result === 'granted') {
+                toast('Notifications enabled 🔔');
+                tryPushSubscribe();     // set up push in background
+            } else if (result === 'denied') {
+                showNotifModal('🔔 Notifications were blocked');
+            } else {
+                // dismissed — gentle nudge
+                toast('Tap the bell to enable notifications');
+            }
         }
-    })();
+    });
+
+    updateBellState(); // set correct color on page load
 
     // ── Orientation / resize: re-scroll to bottom ──────────────────────
     let _resizeTimer;
