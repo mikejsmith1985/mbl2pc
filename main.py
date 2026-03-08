@@ -204,6 +204,7 @@ def logout(request: Request):
 def me(request: Request):
     user = get_current_user(request)
     return {
+        'sub': user.get('sub', ''),
         'name': user.get('name', ''),
         'email': user.get('email', ''),
         'picture': user.get('picture', '')
