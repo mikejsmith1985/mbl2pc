@@ -75,12 +75,20 @@
         .date-sep span:hover{background:var(--header-from);color:#fff;border-color:var(--header-from)}
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
-        /* Date picker popover */
-        #datePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:12px;padding:.75rem;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:300;display:none;flex-direction:column;gap:.5rem;min-width:210px}
+        /* Date picker popover — custom calendar */
+        #datePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:12px;padding:.85rem;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:300;display:none;flex-direction:column;gap:.6rem;width:268px;touch-action:manipulation}
         #datePopover.open{display:flex}
-        #datePopover label{font-size:.75rem;font-weight:600;color:var(--meta);text-transform:uppercase;letter-spacing:.04em}
-        #datePickerInput{border:1px solid var(--input-border);border-radius:8px;padding:.4rem .6rem;font-family:inherit;font-size:.9rem;background:var(--input-bg);color:var(--recv-text);outline:none;width:100%;cursor:pointer}
-        #datePickerInput:focus{border-color:var(--header-from)}
+        #calPopHeader{display:flex;align-items:center;justify-content:space-between}
+        #calPopHeader button{background:none;border:none;cursor:pointer;color:var(--recv-text);font-size:1.2rem;padding:.2rem .5rem;border-radius:8px;line-height:1}
+        #calPopHeader button:hover{background:var(--input-bg)}
+        #calPopMonthLabel{font-size:.88rem;font-weight:600;color:var(--recv-text)}
+        #calPopGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+        .cpd{font-size:.7rem;font-weight:600;color:var(--meta);padding:3px 0}
+        .cpday{padding:5px 2px;border-radius:7px;cursor:pointer;font-size:.82rem;color:var(--recv-text)}
+        .cpday:hover{background:var(--input-bg)}
+        .cpday.today{font-weight:700;color:var(--header-from)}
+        .cpday.sel{background:var(--header-from)!important;color:#fff!important}
+        .cpday.empty{cursor:default}
         #datePickerClear{background:none;border:1px solid var(--input-border);border-radius:8px;padding:.3rem .6rem;font-size:.78rem;cursor:pointer;color:var(--meta);text-align:center;transition:border-color .15s,color .15s}
         #datePickerClear:hover{border-color:#ef4444;color:#ef4444}
 
@@ -341,8 +349,12 @@
 
     <!-- Date picker popover -->
     <div id="datePopover" role="dialog" aria-label="Filter messages by date">
-        <label for="datePickerInput">Filter by date</label>
-        <input type="date" id="datePickerInput">
+        <div id="calPopHeader">
+            <button id="calPopPrev" aria-label="Previous month">&#8249;</button>
+            <span id="calPopMonthLabel"></span>
+            <button id="calPopNext" aria-label="Next month">&#8250;</button>
+        </div>
+        <div id="calPopGrid"></div>
         <button id="datePickerClear">✕ Clear filter</button>
     </div>
 
@@ -620,25 +632,81 @@
     // ── Calendar date jump ─────────────────────────────────────────────
     const calendarBtn = document.getElementById('calendarBtn');
     const datePopover = document.getElementById('datePopover');
-    const datePickerInput = document.getElementById('datePickerInput');
     const datePickerClear = document.getElementById('datePickerClear');
 
-    datePickerInput.max = new Date().toISOString().slice(0, 10);
+    // Custom calendar state
+    const CAL_MONTHS = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+    const CAL_DAYS   = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    let calViewYear, calViewMonth;
+
+    function drawCalPop() {
+        document.getElementById('calPopMonthLabel').textContent =
+            CAL_MONTHS[calViewMonth] + ' ' + calViewYear;
+        const grid = document.getElementById('calPopGrid');
+        grid.innerHTML = '';
+        CAL_DAYS.forEach(d => {
+            const h = document.createElement('div');
+            h.className = 'cpd'; h.textContent = d; grid.appendChild(h);
+        });
+        const firstDay = new Date(calViewYear, calViewMonth, 1).getDay();
+        const daysInMo = new Date(calViewYear, calViewMonth + 1, 0).getDate();
+        const todayStr = new Date().toISOString().slice(0, 10);
+        for (let i = 0; i < firstDay; i++) {
+            const e = document.createElement('div');
+            e.className = 'cpday empty'; grid.appendChild(e);
+        }
+        for (let d = 1; d <= daysInMo; d++) {
+            const ds = calViewYear + '-' +
+                String(calViewMonth + 1).padStart(2, '0') + '-' +
+                String(d).padStart(2, '0');
+            const cell = document.createElement('div');
+            cell.className = 'cpday';
+            if (ds === todayStr) cell.classList.add('today');
+            if (ds === activeDateFilter) cell.classList.add('sel');
+            cell.textContent = d;
+            cell.addEventListener('click', () => jumpToDate(ds));
+            grid.appendChild(cell);
+        }
+    }
+
+    function openCalPop() {
+        const now = new Date();
+        calViewYear  = now.getFullYear();
+        calViewMonth = now.getMonth();
+        drawCalPop();
+        datePopover.classList.add('open');
+        setTimeout(() => document.addEventListener('click', closePopoverOutside), 0);
+    }
+
+    document.getElementById('calPopPrev').addEventListener('click', e => {
+        e.stopPropagation();
+        calViewMonth--;
+        if (calViewMonth < 0) { calViewMonth = 11; calViewYear--; }
+        drawCalPop();
+    });
+    document.getElementById('calPopNext').addEventListener('click', e => {
+        e.stopPropagation();
+        calViewMonth++;
+        if (calViewMonth > 11) { calViewMonth = 0; calViewYear++; }
+        drawCalPop();
+    });
 
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
         lastMsgCount = 0;
         calendarBtn.classList.add('active');
         datePopover.classList.remove('open');
+        document.removeEventListener('click', closePopoverOutside);
         fetchMessages('', dateStr);
         toast(`Showing ${fmtDateLabel(dateStr + 'T12:00:00')}`);
     }
 
     function clearDateFilter() {
         activeDateFilter = '';
-        datePickerInput.value = '';
         calendarBtn.classList.remove('active');
         datePopover.classList.remove('open');
+        document.removeEventListener('click', closePopoverOutside);
         lastMsgCount = 0;
         fetchMessages();
     }
@@ -646,41 +714,21 @@
     calendarBtn.addEventListener('click', () => {
         if (activeDateFilter) {
             clearDateFilter();
+        } else if (datePopover.classList.contains('open')) {
+            datePopover.classList.remove('open');
+            document.removeEventListener('click', closePopoverOutside);
         } else {
-            const opening = !datePopover.classList.contains('open');
-            datePopover.classList.toggle('open');
-            if (opening) {
-                // Register outside-click handler AFTER this event cycle
-                // (setTimeout(0) prevents the current tap from immediately closing the popover)
-                setTimeout(() => {
-                    document.addEventListener('click', closePopoverOutside);
-                }, 0);
-            }
+            openCalPop();
         }
     });
 
     function closePopoverOutside(e) {
-        if (datePopover.contains(e.target)) {
-            // Click inside popover — re-register for next outside click
-            setTimeout(() => {
-                document.addEventListener('click', closePopoverOutside);
-            }, 0);
-        } else {
-            datePopover.classList.remove('open');
-        }
+        if (datePopover.contains(e.target) || calendarBtn.contains(e.target)) return;
+        datePopover.classList.remove('open');
+        document.removeEventListener('click', closePopoverOutside);
     }
 
-    datePickerInput.addEventListener('change', e => {
-        document.removeEventListener('click', closePopoverOutside);
-        const date = e.target.value;
-        if (date) jumpToDate(date);
-        else clearDateFilter();
-    });
-
-    datePickerClear.addEventListener('click', () => {
-        document.removeEventListener('click', closePopoverOutside);
-        clearDateFilter();
-    });
+    datePickerClear.addEventListener('click', () => clearDateFilter());
 
     // ── Search ─────────────────────────────────────────────────────────
     let searchTimer = null;
@@ -690,7 +738,7 @@
         const q = searchInput.value.trim();
         clearSearch.style.display = q ? '' : 'none';
         // Clear date filter when searching
-        if (q) { activeDateFilter = ''; datePickerInput.value = ''; document.getElementById('calendarBtn').classList.remove('active'); }
+        if (q) { activeDateFilter = ''; document.getElementById('calendarBtn').classList.remove('active'); }
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => { lastMsgCount = 0; fetchMessages(q); }, 350);
     });
