@@ -76,8 +76,8 @@
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
         /* Calendar picker (hidden native input used as trigger) */
-        #calendarInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none;padding:0;margin:0}
-        #calendarBtn{position:relative;overflow:hidden}
+        #calendarInput{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;top:50%;left:50%;transform:translate(-50%,-50%)}
+        #calendarBtn{position:relative}
 
         /* Chat */
         #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
@@ -610,33 +610,40 @@
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
         lastMsgCount = 0;
-        const cal = document.getElementById('calendarInput');
-        cal.value = dateStr;
-        cal.style.pointerEvents = 'none'; // let button clicks through to clear filter
-        document.getElementById('calendarBtn').classList.add('active');
+        calendarInput.value = dateStr;
+        calendarBtn.classList.add('active');
         fetchMessages('', dateStr);
         toast(`Showing ${fmtDateLabel(dateStr + 'T12:00:00')}`);
     }
 
     function clearDateFilter() {
         activeDateFilter = '';
-        const cal = document.getElementById('calendarInput');
-        cal.value = '';
-        cal.style.pointerEvents = ''; // restore overlay so tapping opens picker
-        document.getElementById('calendarBtn').classList.remove('active');
+        calendarInput.value = '';
+        calendarBtn.classList.remove('active');
         lastMsgCount = 0;
         fetchMessages();
     }
 
-    document.getElementById('calendarInput').max = new Date().toISOString().slice(0, 10);
-    document.getElementById('calendarInput').addEventListener('change', e => {
+    calendarInput.max = new Date().toISOString().slice(0, 10);
+
+    // Stop programmatic .click() fallback from bubbling back to button (prevents infinite recursion)
+    calendarInput.addEventListener('click', e => e.stopPropagation());
+
+    calendarInput.addEventListener('change', e => {
         const date = e.target.value;
         if (date) jumpToDate(date);
         else clearDateFilter();
     });
-    // Only handles "clear" — when filter active, input pointer-events:none lets this fire
-    document.getElementById('calendarBtn').addEventListener('click', () => {
-        if (activeDateFilter) clearDateFilter();
+
+    calendarBtn.addEventListener('click', () => {
+        if (activeDateFilter) { clearDateFilter(); return; }
+        // Open the native date picker
+        if (typeof calendarInput.showPicker === 'function') {
+            calendarInput.showPicker();
+        } else {
+            calendarInput.focus();
+            calendarInput.click();
+        }
     });
 
     // ── Search ─────────────────────────────────────────────────────────

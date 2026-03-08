@@ -104,6 +104,62 @@ if (SESSION_COOKIE) {
       cy.get('#logoutBtn').click()
       cy.url().should('include', '/login')
     })
+
+    // ── Calendar button ────────────────────────────────────────────────
+    it('calendar button exists and is visible', () => {
+      cy.get('#calendarBtn').should('be.visible')
+      cy.get('#calendarInput').should('exist')
+    })
+
+    it('calendar button turns gold after a date is selected', () => {
+      // Simulate picking a date by directly setting the input value and firing change
+      const today = new Date().toISOString().slice(0, 10)
+      cy.get('#calendarBtn').should('not.have.class', 'active')
+      cy.get('#calendarInput').invoke('val', today).trigger('change')
+      cy.get('#calendarBtn').should('have.class', 'active')
+    })
+
+    it('calendar button clears filter and turns white when clicked while active', () => {
+      const today = new Date().toISOString().slice(0, 10)
+      // Activate filter
+      cy.get('#calendarInput').invoke('val', today).trigger('change')
+      cy.get('#calendarBtn').should('have.class', 'active')
+      // Click button to clear
+      cy.get('#calendarBtn').click()
+      cy.get('#calendarBtn').should('not.have.class', 'active')
+      cy.get('#calendarInput').should('have.value', '')
+    })
+
+    // ── Bell / notification button ─────────────────────────────────────
+    it('bell button exists and is visible', () => {
+      cy.get('#notifBtn').should('be.visible')
+    })
+
+    it('bell button click opens the notification modal when push is not supported', () => {
+      // Override Notification and PushManager to simulate unsupported browser
+      cy.window().then(win => {
+        delete win.PushManager
+      })
+      cy.get('#notifBtn').click()
+      cy.get('#notifModal').should('have.class', 'open')
+      cy.get('#notifModal').should('be.visible')
+    })
+
+    it('notification modal can be dismissed', () => {
+      cy.window().then(win => { delete win.PushManager })
+      cy.get('#notifBtn').click()
+      cy.get('#notifModal').should('have.class', 'open')
+      cy.get('#notifModalClose').click()
+      cy.get('#notifModal').should('not.have.class', 'open')
+    })
+
+    it('bell button click opens notification modal when Notification permission is denied', () => {
+      cy.window().then(win => {
+        Object.defineProperty(win.Notification, 'permission', { get: () => 'denied', configurable: true })
+      })
+      cy.get('#notifBtn').click()
+      cy.get('#notifModal').should('have.class', 'open')
+    })
   })
 } else {
   describe('Chat UI (authenticated) — SKIPPED', () => {
