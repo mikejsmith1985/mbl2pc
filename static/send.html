@@ -41,12 +41,12 @@
         header .info .device-row{display:flex;align-items:center;gap:.3rem;font-size:.78rem;opacity:.85;margin-top:1px}
         #deviceName{background:none;border:none;color:#fff;font-family:inherit;font-size:.78rem;cursor:pointer;border-bottom:1px dashed rgba(255,255,255,.4);padding:0;min-width:60px;max-width:140px}
         #deviceName:focus{outline:none;border-bottom-color:#fff}
-        header .btn-icon{background:none;border:none;color:#fff;cursor:pointer;padding:.4rem;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:.85;transition:opacity .15s,background .15s,color .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+        header .btn-icon{background:none;border:none;color:#fff;cursor:pointer;padding:.4rem;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:.85;transition:opacity .15s,color .15s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         header .btn-icon:focus{outline:none;background:none}
-        header .btn-icon:focus-visible{background:rgba(255,255,255,.12)}
-        @media(hover:hover){header .btn-icon:hover{opacity:1;background:rgba(255,255,255,.12)}}
-        header .btn-icon.active{background:rgba(255,255,255,.2);opacity:1}
-        #notifBtn.active{color:#fbbf24}
+        header .btn-icon:focus-visible{outline:2px solid rgba(255,255,255,.5);outline-offset:2px}
+        header .btn-icon:active{background:rgba(255,255,255,.25);opacity:1}
+        @media(hover:hover){header .btn-icon:hover{opacity:1}}
+        header .btn-icon.active{background:none;opacity:1;color:#fbbf24}
         #notifBtn.blocked{opacity:.45}
 
         /* Pinned panel */
@@ -155,7 +155,6 @@
         .btn-expiry.active{border-color:var(--header-from);color:var(--header-from)}
         .btn-paste{background:var(--input-bg);color:var(--meta);border:1px solid var(--input-border)}
         .btn-paste:hover{border-color:var(--header-from);color:var(--header-from)}
-        .btn-notif.active svg{stroke:currentColor}
         .btn-send{background:var(--header-from);color:#fff}
         .btn-send:hover{background:var(--header-to)}
         #fileInput{display:none}
@@ -872,7 +871,15 @@
         const isChrome = /Chrome/.test(ua) && !/Edg/.test(ua);
         const isFirefox = /Firefox/.test(ua);
         const isSafari = /Safari/.test(ua) && !isChrome;
+        const noPush = !('PushManager' in window);
 
+        if (isIOS && noPush) {
+            return `<p style="font-size:.82rem;color:var(--meta)">To enable notifications on iPhone/iPad:</p>
+                <ol><li>Tap the <strong>Share</strong> button (□↑) in Safari</li>
+                <li>Tap <strong>Add to Home Screen</strong></li>
+                <li>Open the app from your Home Screen</li>
+                <li>Tap the bell again — notifications will be available</li></ol>`;
+        }
         if (isIOS && isSafari) {
             return `<p style="font-size:.82rem;color:var(--meta)">On iPhone/iPad (Safari):</p>
                 <ol><li>Open the <strong>Settings</strong> app</li>
@@ -943,7 +950,7 @@
 
     async function subscribeToPush() {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            toast('Push notifications not supported on this browser', 'error'); return;
+            showNotifBlockedModal(); return;  // show instructions (e.g. install as PWA on iOS)
         }
         // Already subscribed — toggle off
         if (localStorage.getItem('push_subscribed') === '1' && Notification.permission === 'granted') {
