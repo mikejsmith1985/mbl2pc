@@ -150,10 +150,9 @@
         .btn-expiry.active{border-color:var(--header-from);color:var(--header-from)}
         .btn-paste{background:var(--input-bg);color:var(--meta);border:1px solid var(--input-border)}
         .btn-paste:hover{border-color:var(--header-from);color:var(--header-from)}
-        .btn-notif{background:none;border:none;color:#fff;cursor:pointer;padding:0.4rem;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0.85;transition:opacity .15s,background .15s}
-        .btn-notif:hover{opacity:1;background:rgba(255,255,255,.12)}
-        .btn-notif.active{color:#fbbf24;opacity:1}
+        .btn-notif.active svg{stroke:#fbbf24}
         header .btn-icon.active{background:rgba(255,255,255,.2);opacity:1}
+        header .btn-icon{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         .btn-send{background:var(--header-from);color:#fff}
         .btn-send:hover{background:var(--header-to)}
         #fileInput{display:none}
@@ -207,7 +206,7 @@
                 <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
             </svg>
         </button>
-        <button class="btn-notif" id="notifBtn" title="Enable notifications" aria-label="Notifications">
+        <button class="btn-icon btn-notif" id="notifBtn" title="Enable notifications" aria-label="Notifications">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
