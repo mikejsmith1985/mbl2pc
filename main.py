@@ -224,6 +224,18 @@ def _supabase_insert(item: dict):
     try:
         supabase.table("messages").insert(item).execute()
     except Exception as e:
+        err = str(e)
+        # If insert failed due to a missing column, retry without optional columns
+        optional_cols = ['expires_at', 'starred']
+        if any(col in err for col in optional_cols):
+            print(f"[WARN] Column missing, retrying insert without optional cols: {e}", file=sys.stderr)
+            safe_item = {k: v for k, v in item.items() if k not in optional_cols}
+            try:
+                supabase.table("messages").insert(safe_item).execute()
+                return
+            except Exception as e2:
+                print(f"[ERROR] Supabase insert retry error: {e2}", file=sys.stderr)
+                raise HTTPException(status_code=500, detail=f"Database error: {e2}")
         print(f"[ERROR] Supabase insert error: {e}", file=sys.stderr)
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
@@ -350,10 +362,14 @@ def get_messages(request: Request, q: str = ""):
     user = get_current_user(request)
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase is not configured.")
-    try:
+
+    def _run_query(include_optional: bool):
+        cols = "id,sender,text,image_url,file_url,file_name,timestamp"
+        if include_optional:
+            cols += ",starred,expires_at"
         query = (
             supabase.table("messages")
-            .select("id,sender,text,image_url,file_url,file_name,timestamp,starred,expires_at")
+            .select(cols)
             .eq("user_id", user['sub'])
             .order("timestamp", desc=False)
         )
@@ -361,27 +377,40 @@ def get_messages(request: Request, q: str = ""):
             query = query.ilike("text", f"%{q}%")
         else:
             query = query.limit(100)
-        resp = query.execute()
-        now = datetime.now().isoformat()
-        messages = []
-        for m in resp.data:
-            ea = m.get('expires_at')
-            if ea and ea <= now:
-                continue  # skip expired
-            messages.append({
-                'id': m.get('id', ''),
-                'sender': m.get('sender', ''),
-                'text': m.get('text') or '',
-                'image_url': m.get('image_url') or '',
-                'file_url': m.get('file_url') or '',
-                'file_name': m.get('file_name') or '',
-                'timestamp': m.get('timestamp', ''),
-                'starred': bool(m.get('starred', False)),
-            })
-        return {"messages": messages}
+        return query.execute()
+
+    try:
+        resp = _run_query(include_optional=True)
     except Exception as e:
-        print(f"[ERROR] Supabase query error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        err = str(e)
+        if 'starred' in err or 'expires_at' in err:
+            print(f"[WARN] Optional columns missing, falling back: {e}", file=sys.stderr)
+            try:
+                resp = _run_query(include_optional=False)
+            except Exception as e2:
+                print(f"[ERROR] Supabase query error: {e2}", file=sys.stderr)
+                raise HTTPException(status_code=500, detail=f"Database error: {e2}")
+        else:
+            print(f"[ERROR] Supabase query error: {e}", file=sys.stderr)
+            raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+    now = datetime.now().isoformat()
+    messages = []
+    for m in resp.data:
+        ea = m.get('expires_at')
+        if ea and ea <= now:
+            continue  # skip expired
+        messages.append({
+            'id': m.get('id', ''),
+            'sender': m.get('sender', ''),
+            'text': m.get('text') or '',
+            'image_url': m.get('image_url') or '',
+            'file_url': m.get('file_url') or '',
+            'file_name': m.get('file_name') or '',
+            'timestamp': m.get('timestamp', ''),
+            'starred': bool(m.get('starred', False)),
+        })
+    return {"messages": messages}
 
 
 # Toggle star on a message
@@ -400,6 +429,8 @@ def star_message(msg_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        if 'starred' in str(e):
+            raise HTTPException(status_code=503, detail="Run the Supabase migration to enable starring (see supabase_migration.sql)")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
