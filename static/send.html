@@ -71,8 +71,8 @@
         .date-sep.active-date span{background:var(--header-from);color:#fff;border-color:var(--header-from)}
 
         /* Calendar picker (hidden native input used as trigger) */
-        #calendarInput{position:absolute;opacity:0;pointer-events:none;width:0;height:0}
-        #calendarBtn{position:relative}
+        #calendarInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:none;padding:0;margin:0}
+        #calendarBtn{position:relative;overflow:hidden}
 
         /* Chat */
         #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
@@ -214,8 +214,8 @@
             </svg>
         </button>
         <button class="btn-icon" id="calendarBtn" title="Jump to date" aria-label="Browse by date">
-            <input type="date" id="calendarInput" tabindex="-1" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <input type="date" id="calendarInput" title="Pick a date">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="pointer-events:none">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
                 <line x1="3" y1="10" x2="21" y2="10"/>
@@ -609,17 +609,17 @@
         fetchMessages();
     }
 
-    document.getElementById('calendarBtn').addEventListener('click', () => {
-        // If already filtering by date, second click clears it
-        if (activeDateFilter) { clearDateFilter(); return; }
-        const cal = document.getElementById('calendarInput');
-        cal.max = new Date().toISOString().slice(0, 10);
-        cal.showPicker ? cal.showPicker() : cal.click();
-    });
+    document.getElementById('calendarInput').max = new Date().toISOString().slice(0, 10);
     document.getElementById('calendarInput').addEventListener('change', e => {
         const date = e.target.value;
         if (date) jumpToDate(date);
         else clearDateFilter();
+    });
+    // Clicking the button when already filtering clears it (tap the SVG area outside the input)
+    document.getElementById('calendarBtn').addEventListener('click', e => {
+        if (e.target === e.currentTarget || e.target.tagName === 'svg' || e.target.tagName === 'line' || e.target.tagName === 'rect') {
+            if (activeDateFilter) clearDateFilter();
+        }
     });
 
     // ── Search ─────────────────────────────────────────────────────────
