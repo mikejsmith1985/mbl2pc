@@ -163,6 +163,19 @@
         #expiryPicker label{font-size:.8rem;color:var(--meta);display:block;margin-bottom:.3rem;font-weight:500}
         #expirySelect{width:100%;border:1px solid var(--input-border);border-radius:8px;padding:.3rem .5rem;font-family:inherit;font-size:.85rem;background:var(--input-bg);color:var(--recv-text);outline:none}
 
+        /* Notification help modal */
+        #notifModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center;padding:1rem}
+        #notifModal.open{display:flex}
+        .notif-card{background:var(--surface);border-radius:16px;padding:1.5rem;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+        .notif-card h3{font-size:1rem;font-weight:600;margin-bottom:.5rem}
+        .notif-card p{font-size:.85rem;color:var(--meta);margin-bottom:.8rem;line-height:1.5}
+        .notif-card ol{font-size:.85rem;line-height:1.8;padding-left:1.2rem;color:var(--recv-text);margin-bottom:1rem}
+        .notif-card ol li{margin-bottom:.2rem}
+        .notif-card .notif-actions{display:flex;gap:.5rem;justify-content:flex-end}
+        .notif-card button{border:none;border-radius:8px;padding:.4rem .9rem;font-size:.85rem;font-weight:500;cursor:pointer}
+        .notif-card .btn-primary{background:var(--header-from);color:#fff}
+        .notif-card .btn-secondary{background:var(--input-bg);color:var(--recv-text);border:1px solid var(--input-border)}
+
         /* Toast */
         #toastContainer{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:.4rem;z-index:1000;pointer-events:none}
         .toast{background:#1e293b;color:#fff;padding:.5rem 1.1rem;border-radius:20px;font-size:.85rem;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.25);animation:toast-in .25s ease-out,toast-out .3s ease-in 2.2s forwards;white-space:nowrap;display:flex;align-items:center;gap:.4rem}
@@ -291,6 +304,19 @@
     </div>
     <div id="version"></div>
     <div id="toastContainer"></div>
+
+    <!-- Notification blocked help modal -->
+    <div id="notifModal" role="dialog" aria-modal="true">
+        <div class="notif-card">
+            <h3>🔔 Notifications are blocked</h3>
+            <p>Your browser has blocked notifications for this site. Here's how to fix it:</p>
+            <div id="notifSteps"></div>
+            <div class="notif-actions">
+                <button class="btn-secondary" id="notifModalClose">Dismiss</button>
+                <button class="btn-primary" id="notifModalRetry">Try again</button>
+            </div>
+        </div>
+    </div>
 
     <script>
     'use strict';
@@ -821,16 +847,101 @@
         return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
     }
 
+    function getUnblockInstructions() {
+        const ua = navigator.userAgent;
+        const isIOS = /iPad|iPhone|iPod/.test(ua);
+        const isAndroid = /Android/.test(ua);
+        const isChrome = /Chrome/.test(ua) && !/Edg/.test(ua);
+        const isFirefox = /Firefox/.test(ua);
+        const isSafari = /Safari/.test(ua) && !isChrome;
+
+        if (isIOS && isSafari) {
+            return `<p style="font-size:.82rem;color:var(--meta)">On iPhone/iPad (Safari):</p>
+                <ol><li>Open the <strong>Settings</strong> app</li>
+                <li>Scroll down and tap <strong>Safari</strong></li>
+                <li>Tap <strong>Notifications</strong></li>
+                <li>Find <strong>mbl2pc.onrender.com</strong> and set to <strong>Allow</strong></li>
+                <li>Come back here and tap the bell again</li></ol>`;
+        }
+        if (isAndroid && isChrome) {
+            return `<p style="font-size:.82rem;color:var(--meta)">On Android (Chrome):</p>
+                <ol><li>Tap the <strong>lock icon</strong> in the address bar</li>
+                <li>Tap <strong>Permissions</strong></li>
+                <li>Set <strong>Notifications</strong> to <strong>Allow</strong></li>
+                <li>Reload the page and tap the bell again</li></ol>`;
+        }
+        if (isChrome) {
+            return `<p style="font-size:.82rem;color:var(--meta)">On Chrome (desktop):</p>
+                <ol><li>Click the <strong>lock icon</strong> (🔒) in the address bar</li>
+                <li>Click <strong>Site settings</strong></li>
+                <li>Set <strong>Notifications</strong> to <strong>Allow</strong></li>
+                <li>Reload the page and tap the bell again</li></ol>`;
+        }
+        if (isFirefox) {
+            return `<p style="font-size:.82rem;color:var(--meta)">On Firefox:</p>
+                <ol><li>Click the <strong>shield icon</strong> in the address bar</li>
+                <li>Click <strong>Connection secure → More information</strong></li>
+                <li>Go to <strong>Permissions → Receive Notifications</strong></li>
+                <li>Set to <strong>Allow</strong> and reload</li></ol>`;
+        }
+        return `<p style="font-size:.82rem;color:var(--meta)">In your browser:</p>
+            <ol><li>Click the <strong>lock / info icon</strong> in the address bar</li>
+            <li>Find <strong>Notifications</strong> in site permissions</li>
+            <li>Change it to <strong>Allow</strong></li>
+            <li>Reload the page and tap the bell again</li></ol>`;
+    }
+
+    function showNotifBlockedModal() {
+        document.getElementById('notifSteps').innerHTML = getUnblockInstructions();
+        document.getElementById('notifModal').classList.add('open');
+    }
+
+    document.getElementById('notifModalClose').addEventListener('click', () => {
+        document.getElementById('notifModal').classList.remove('open');
+    });
+    document.getElementById('notifModal').addEventListener('click', e => {
+        if (e.target === document.getElementById('notifModal'))
+            document.getElementById('notifModal').classList.remove('open');
+    });
+    document.getElementById('notifModalRetry').addEventListener('click', () => {
+        document.getElementById('notifModal').classList.remove('open');
+        subscribeToPush();
+    });
+
+    async function unsubscribeFromPush() {
+        try {
+            if ('serviceWorker' in navigator) {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                if (sub) await sub.unsubscribe();
+            }
+        } catch(_) {}
+        notifBtn.classList.remove('active');
+        notifBtn.title = 'Enable notifications';
+        localStorage.removeItem('push_subscribed');
+        toast('Notifications disabled');
+    }
+
     async function subscribeToPush() {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            toast('Push not supported on this browser', 'error'); return;
+            toast('Push notifications not supported on this browser', 'error'); return;
         }
+        // Already subscribed — toggle off
+        if (localStorage.getItem('push_subscribed') === '1' && Notification.permission === 'granted') {
+            await unsubscribeFromPush(); return;
+        }
+        // Already blocked at OS level — show help
+        if (Notification.permission === 'denied') {
+            showNotifBlockedModal(); return;
+        }
+        // Request permission
         const perm = await Notification.requestPermission();
-        if (perm !== 'granted') { toast('Notifications blocked', 'error'); return; }
+        if (perm === 'denied') { showNotifBlockedModal(); return; }
+        if (perm !== 'granted') return; // user dismissed — do nothing
         try {
             const reg = await navigator.serviceWorker.ready;
             const keyRes = await fetch(`${API}/push/vapid-public-key`);
-            if (!keyRes.ok) { toast('Push not configured on server', 'error'); return; }
+            if (!keyRes.ok) { toast('Push not configured on server yet', 'error'); return; }
             const { public_key } = await keyRes.json();
             let sub = await reg.pushManager.getSubscription();
             if (!sub) {
@@ -846,7 +957,7 @@
             });
             if (res.ok) {
                 notifBtn.classList.add('active');
-                notifBtn.title = 'Notifications enabled';
+                notifBtn.title = 'Notifications enabled — tap to disable';
                 localStorage.setItem('push_subscribed', '1');
                 toast('Notifications enabled 🔔');
             }
@@ -858,11 +969,23 @@
 
     notifBtn.addEventListener('click', subscribeToPush);
 
-    // Restore active state if already subscribed
-    if (localStorage.getItem('push_subscribed') === '1') {
-        notifBtn.classList.add('active');
-        notifBtn.title = 'Notifications enabled';
-    }
+    // Restore bell state on load and reflect actual permission state
+    (function syncNotifState() {
+        const stored = localStorage.getItem('push_subscribed') === '1';
+        const perm = ('Notification' in window) ? Notification.permission : 'default';
+        if (stored && perm === 'granted') {
+            notifBtn.classList.add('active');
+            notifBtn.title = 'Notifications enabled — tap to disable';
+        } else if (perm === 'denied') {
+            // Show a subtle indicator that notifications need attention
+            notifBtn.title = 'Notifications blocked — tap for help';
+            notifBtn.style.opacity = '0.5';
+            localStorage.removeItem('push_subscribed');
+        } else {
+            notifBtn.title = 'Enable notifications';
+            if (stored) localStorage.removeItem('push_subscribed'); // stale
+        }
+    })();
 
     // ── PWA service worker ─────────────────────────────────────────────
     if ('serviceWorker' in navigator) {
