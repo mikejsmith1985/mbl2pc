@@ -643,34 +643,43 @@
         fetchMessages();
     }
 
-    calendarBtn.addEventListener('click', (e) => {
-        e.stopPropagation(); // prevent document handler from immediately closing
+    calendarBtn.addEventListener('click', () => {
         if (activeDateFilter) {
-            // Filter is active: clicking the gold button clears the filter
             clearDateFilter();
         } else {
-            // No filter: toggle the date picker popover open/closed
+            const opening = !datePopover.classList.contains('open');
             datePopover.classList.toggle('open');
+            if (opening) {
+                // Register outside-click handler AFTER this event cycle
+                // (setTimeout(0) prevents the current tap from immediately closing the popover)
+                setTimeout(() => {
+                    document.addEventListener('click', closePopoverOutside);
+                }, 0);
+            }
         }
     });
 
+    function closePopoverOutside(e) {
+        if (datePopover.contains(e.target)) {
+            // Click inside popover — re-register for next outside click
+            setTimeout(() => {
+                document.addEventListener('click', closePopoverOutside);
+            }, 0);
+        } else {
+            datePopover.classList.remove('open');
+        }
+    }
+
     datePickerInput.addEventListener('change', e => {
+        document.removeEventListener('click', closePopoverOutside);
         const date = e.target.value;
         if (date) jumpToDate(date);
         else clearDateFilter();
     });
 
-    datePickerClear.addEventListener('click', (e) => {
-        e.stopPropagation();
+    datePickerClear.addEventListener('click', () => {
+        document.removeEventListener('click', closePopoverOutside);
         clearDateFilter();
-    });
-
-    // Stop clicks inside the popover from bubbling to the document close handler
-    datePopover.addEventListener('click', (e) => e.stopPropagation());
-
-    // Close popover when clicking anywhere outside it
-    document.addEventListener('click', () => {
-        datePopover.classList.remove('open');
     });
 
     // ── Search ─────────────────────────────────────────────────────────

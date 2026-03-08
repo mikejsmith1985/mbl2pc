@@ -1,12 +1,17 @@
 // Minimal service worker — required for PWA installability and share target
-const CACHE = 'mbl2pc-v2';
+const CACHE = 'mbl2pc-v3';
 
 self.addEventListener('install', e => {
     self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-    e.waitUntil(clients.claim());
+    // Delete old caches so users immediately get fresh resources after deploy
+    e.waitUntil(
+        caches.keys()
+            .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+            .then(() => clients.claim())
+    );
 });
 
 // Cache static assets on fetch; always network-first for API calls
