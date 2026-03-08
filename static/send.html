@@ -643,16 +643,14 @@
         fetchMessages();
     }
 
-    calendarBtn.addEventListener('click', () => {
+    calendarBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // prevent document handler from immediately closing
         if (activeDateFilter) {
             // Filter is active: clicking the gold button clears the filter
             clearDateFilter();
         } else {
             // No filter: toggle the date picker popover open/closed
             datePopover.classList.toggle('open');
-            if (datePopover.classList.contains('open')) {
-                datePickerInput.focus();
-            }
         }
     });
 
@@ -662,16 +660,18 @@
         else clearDateFilter();
     });
 
-    datePickerClear.addEventListener('click', () => clearDateFilter());
+    datePickerClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearDateFilter();
+    });
 
-    // Close popover when clicking outside it
-    document.addEventListener('click', e => {
-        if (datePopover.classList.contains('open') &&
-            !datePopover.contains(e.target) &&
-            !calendarBtn.contains(e.target)) {
-            datePopover.classList.remove('open');
-        }
-    }, true);
+    // Stop clicks inside the popover from bubbling to the document close handler
+    datePopover.addEventListener('click', (e) => e.stopPropagation());
+
+    // Close popover when clicking anywhere outside it
+    document.addEventListener('click', () => {
+        datePopover.classList.remove('open');
+    });
 
     // ── Search ─────────────────────────────────────────────────────────
     let searchTimer = null;
@@ -891,23 +891,30 @@
     // ── Notification bell ──────────────────────────────────────────────
     const notifBtn = document.getElementById('notifBtn');
 
-    // Bell color reflects Notification.permission — independent of push subscription
+    // In-app notif preference: 'mbl2pc_notif' = '1' (on) | '0' (off) | absent (not yet set)
+    // Bell is gold when OS permission is 'granted' AND in-app pref is not '0'
+    // Bell is white when permission is 'default' OR pref is '0'
+    // Bell is dimmed when permission is 'denied'
+    function isBellActive() {
+        return ('Notification' in window) &&
+               Notification.permission === 'granted' &&
+               localStorage.getItem('mbl2pc_notif') !== '0';
+    }
+
     function updateBellState() {
+        notifBtn.classList.remove('active', 'blocked');
         if (!('Notification' in window)) {
-            notifBtn.classList.remove('active', 'blocked');
             notifBtn.title = 'Notifications not supported in this browser';
             return;
         }
-        const perm = Notification.permission;
-        notifBtn.classList.remove('active', 'blocked');
-        if (perm === 'granted') {
-            notifBtn.classList.add('active');       // gold
-            notifBtn.title = 'Notifications are on';
-        } else if (perm === 'denied') {
-            notifBtn.classList.add('blocked');      // dimmed
+        if (isBellActive()) {
+            notifBtn.classList.add('active');   // gold — notifications on
+            notifBtn.title = 'Notifications on — tap to turn off';
+        } else if (Notification.permission === 'denied') {
+            notifBtn.classList.add('blocked');  // dimmed — blocked at OS level
             notifBtn.title = 'Notifications blocked — tap for help';
         } else {
-            notifBtn.title = 'Enable notifications';
+            notifBtn.title = 'Enable notifications'; // white — off or not yet requested
         }
     }
 
@@ -918,7 +925,6 @@
         return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
     }
 
-    // Silently attempt push subscription in background — never blocks or shows errors to user
     async function tryPushSubscribe() {
         try {
             if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
@@ -938,7 +944,16 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(sub.toJSON())
             });
-        } catch (_) { /* push is a bonus feature — fail silently */ }
+        } catch (_) { /* push is a bonus — fail silently */ }
+    }
+
+    async function tryPushUnsubscribe() {
+        try {
+            if (!('serviceWorker' in navigator)) return;
+            const reg = await navigator.serviceWorker.ready;
+            const sub = await reg.pushManager.getSubscription();
+            if (sub) await sub.unsubscribe();
+        } catch (_) {}
     }
 
     function getUnblockInstructions() {
@@ -1011,26 +1026,34 @@
         const perm = Notification.permission;
 
         if (perm === 'denied') {
-            // Cannot request permission again — show unblock instructions
             showNotifModal('🔔 Notifications are blocked');
 
+        } else if (isBellActive()) {
+            // Currently ON — turn off
+            localStorage.setItem('mbl2pc_notif', '0');
+            updateBellState();
+            toast('Notifications off');
+            tryPushUnsubscribe();
+
         } else if (perm === 'granted') {
-            // Already enabled — confirm and offer push setup
-            toast('Notifications are already enabled ✓');
+            // Permission granted but user had turned off — turn back on
+            localStorage.setItem('mbl2pc_notif', '1');
+            updateBellState();
+            toast('Notifications on 🔔');
             tryPushSubscribe();
 
         } else {
-            // 'default' — ask the user
+            // 'default' — request permission from the browser
             const result = await Notification.requestPermission();
-            updateBellState();          // update color immediately after dialog
-
             if (result === 'granted') {
+                localStorage.setItem('mbl2pc_notif', '1');
+                updateBellState();
                 toast('Notifications enabled 🔔');
-                tryPushSubscribe();     // set up push in background
+                tryPushSubscribe();
             } else if (result === 'denied') {
+                updateBellState();
                 showNotifModal('🔔 Notifications were blocked');
             } else {
-                // dismissed — gentle nudge
                 toast('Tap the bell to enable notifications');
             }
         }
