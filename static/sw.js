@@ -1,5 +1,5 @@
 // Minimal service worker — required for PWA installability and share target
-const CACHE = 'mbl2pc-v1';
+const CACHE = 'mbl2pc-v2';
 
 self.addEventListener('install', e => {
     self.skipWaiting();
@@ -12,10 +12,9 @@ self.addEventListener('activate', e => {
 // Cache static assets on fetch; always network-first for API calls
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
-    // Don't cache API or auth routes
     if (['/send', '/messages', '/send-image', '/send-file', '/snippets',
-         '/auth', '/login', '/logout', '/me', '/version', '/health'].some(p => url.pathname.startsWith(p))) {
-        return; // let it fall through to network
+         '/auth', '/login', '/logout', '/me', '/version', '/health', '/push'].some(p => url.pathname.startsWith(p))) {
+        return;
     }
     e.respondWith(
         caches.open(CACHE).then(cache =>
@@ -27,5 +26,35 @@ self.addEventListener('fetch', e => {
                 return cached || fresh;
             })
         )
+    );
+});
+
+// ── Push notification handler ──────────────────────────────────────────────
+self.addEventListener('push', e => {
+    let data = { title: 'mbl2pc', body: 'New message', url: '/send.html' };
+    try { data = Object.assign(data, e.data.json()); } catch(_) {}
+    e.waitUntil(
+        self.registration.showNotification(data.title, {
+            body: data.body,
+            icon: '/static/icon-192.png',
+            badge: '/static/icon-192.png',
+            data: { url: data.url },
+            vibrate: [200, 100, 200],
+            tag: 'mbl2pc-message',
+            renotify: true,
+        })
+    );
+});
+
+self.addEventListener('notificationclick', e => {
+    e.notification.close();
+    const url = (e.notification.data && e.notification.data.url) || '/send.html';
+    e.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+            for (const c of list) {
+                if (c.url.includes('/send.html') && 'focus' in c) return c.focus();
+            }
+            return clients.openWindow(url);
+        })
     );
 });

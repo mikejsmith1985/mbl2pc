@@ -137,6 +137,11 @@
         .btn-attach:hover{color:var(--header-from);border-color:var(--header-from)}
         .btn-expiry{background:var(--input-bg);color:var(--meta);border:1px solid var(--input-border);position:relative}
         .btn-expiry.active{border-color:var(--header-from);color:var(--header-from)}
+        .btn-paste{background:var(--input-bg);color:var(--meta);border:1px solid var(--input-border)}
+        .btn-paste:hover{border-color:var(--header-from);color:var(--header-from)}
+        .btn-notif{background:none;border:none;color:#fff;cursor:pointer;padding:0.4rem;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0.85;transition:opacity .15s,background .15s}
+        .btn-notif:hover{opacity:1;background:rgba(255,255,255,.12)}
+        .btn-notif.active{color:#fbbf24;opacity:1}
         .btn-send{background:var(--header-from);color:#fff}
         .btn-send:hover{background:var(--header-to)}
         #fileInput{display:none}
@@ -175,6 +180,12 @@
         <button class="btn-icon" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
             <svg id="themeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+            </svg>
+        </button>
+        <button class="btn-notif" id="notifBtn" title="Enable notifications" aria-label="Notifications">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
         </button>
         <button class="btn-icon" id="logoutBtn" title="Logout" aria-label="Logout" onclick="window.location.href='/logout'">
@@ -244,6 +255,12 @@
             </svg>
         </button>
         <textarea id="msgInput" rows="1" placeholder="Message…" autocomplete="off"></textarea>
+        <button class="btn-round btn-paste" id="pasteBtn" title="Paste clipboard &amp; send" aria-label="Paste and send">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            </svg>
+        </button>
         <button class="btn-round btn-expiry" id="expiryBtn" title="Set expiry">⏱</button>
         <button class="btn-round btn-send" id="sendBtn" aria-label="Send">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -684,10 +701,76 @@
             msgInput.value = parts.join(' ');
             msgInput.style.height = 'auto';
             msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
-            // Clean URL without reloading
             window.history.replaceState({}, '', '/send.html');
             toast('Content ready to send!');
         }
+    }
+
+    // ── Paste & Send button ────────────────────────────────────────────
+    document.getElementById('pasteBtn').addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text.trim()) { toast('Clipboard is empty', 'error'); return; }
+            msgInput.value = text;
+            msgInput.style.height = 'auto';
+            msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+            await sendText();
+        } catch (_) {
+            toast('Clipboard permission denied — paste manually', 'error');
+        }
+    });
+
+    // ── Push Notifications ─────────────────────────────────────────────
+    const notifBtn = document.getElementById('notifBtn');
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = window.atob(base64);
+        return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+    }
+
+    async function subscribeToPush() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            toast('Push not supported on this browser', 'error'); return;
+        }
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') { toast('Notifications blocked', 'error'); return; }
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const keyRes = await fetch(`${API}/push/vapid-public-key`);
+            if (!keyRes.ok) { toast('Push not configured on server', 'error'); return; }
+            const { public_key } = await keyRes.json();
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(public_key)
+                });
+            }
+            const res = await fetch(`${API}/push/subscribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub.toJSON())
+            });
+            if (res.ok) {
+                notifBtn.classList.add('active');
+                notifBtn.title = 'Notifications enabled';
+                localStorage.setItem('push_subscribed', '1');
+                toast('Notifications enabled 🔔');
+            }
+        } catch (e) {
+            console.error('Push subscribe error', e);
+            toast('Failed to enable notifications', 'error');
+        }
+    }
+
+    notifBtn.addEventListener('click', subscribeToPush);
+
+    // Restore active state if already subscribed
+    if (localStorage.getItem('push_subscribed') === '1') {
+        notifBtn.classList.add('active');
+        notifBtn.title = 'Notifications enabled';
     }
 
     // ── PWA service worker ─────────────────────────────────────────────

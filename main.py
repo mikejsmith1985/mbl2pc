@@ -270,6 +270,7 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         from datetime import timedelta
         item["expires_at"] = (datetime.now() + timedelta(hours=expires_hours)).isoformat(timespec="seconds")
     _supabase_insert(item)
+    _notify_other_devices(user['sub'], sender, msg)
     return {"status": "Message received"}
 
 
@@ -339,6 +340,7 @@ async def send_file(
         "user_id": user['sub']
     }
     _supabase_insert(item)
+    _notify_other_devices(user['sub'], sender, text or original_name)
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
@@ -453,3 +455,73 @@ def delete_snippet(snippet_id: str, request: Request):
         return {"status": "deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# ── Push Notifications ──────────────────────────────────────────────────────────
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "admin@mbl2pc.app")
+
+
+@app.get("/push/vapid-public-key")
+def push_vapid_key():
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Push not configured")
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+
+
+@app.post("/push/subscribe")
+async def push_subscribe(request: Request, sub: PushSubscription):
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Push not configured on server")
+    try:
+        # Upsert: store subscription keyed by endpoint
+        supabase.table("push_subscriptions").upsert({
+            "user_id": user['sub'],
+            "endpoint": sub.endpoint,
+            "keys": sub.keys,
+        }, on_conflict="endpoint").execute()
+        return {"status": "subscribed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+def _send_push_notification(sub_data: dict, title: str, body: str, url: str = "/send.html"):
+    """Fire-and-forget push notification to a single subscription."""
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        return
+    try:
+        from pywebpush import webpush, WebPushException
+        import json
+        webpush(
+            subscription_info={
+                "endpoint": sub_data["endpoint"],
+                "keys": sub_data["keys"],
+            },
+            data=json.dumps({"title": title, "body": body, "url": url}),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": f"mailto:{VAPID_CLAIMS_EMAIL}"},
+        )
+    except Exception as e:
+        print(f"[WARN] Push failed for {sub_data.get('endpoint','')[:40]}: {e}", file=sys.stderr)
+
+
+def _notify_other_devices(user_id: str, sender: str, text_preview: str):
+    """Send push to all subscriptions for this user except (we can't filter by device here, send all)."""
+    if not supabase or not VAPID_PRIVATE_KEY:
+        return
+    try:
+        resp = supabase.table("push_subscriptions").select("endpoint,keys").eq("user_id", user_id).execute()
+        preview = (text_preview or "📎 File")[:80]
+        for sub in (resp.data or []):
+            _send_push_notification(sub, f"mbl2pc — {sender}", preview)
+    except Exception as e:
+        print(f"[WARN] Push notify error: {e}", file=sys.stderr)

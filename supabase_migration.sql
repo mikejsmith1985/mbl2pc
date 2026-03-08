@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS messages (
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS starred BOOLEAN DEFAULT FALSE;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TEXT DEFAULT NULL;
 
--- Optional: snippets table for future pinned-snippets feature
+-- Snippets table (saved reusable text blobs)
 CREATE TABLE IF NOT EXISTS snippets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id TEXT NOT NULL,
@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS snippets (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Push notification subscriptions
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  keys JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Disable RLS if you're using the service_role key (recommended for server-side)
 -- ALTER TABLE messages DISABLE ROW LEVEL SECURITY;
 -- ALTER TABLE snippets DISABLE ROW LEVEL SECURITY;
+-- ALTER TABLE push_subscriptions DISABLE ROW LEVEL SECURITY;
