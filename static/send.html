@@ -435,29 +435,37 @@
 
     // ── Theme ──────────────────────────────────────────────────────────
     function applyTheme(palette, dark) {
+        // Each mode remembers its own palette independently
+        const modeKey = dark ? 'mbl2pc_palette_dark' : 'mbl2pc_palette_light';
+        const pal = palette || localStorage.getItem(modeKey) || 'indigo';
         html.setAttribute('data-theme', dark ? 'dark' : 'light');
-        html.setAttribute('data-palette', palette || 'indigo');
+        html.setAttribute('data-palette', pal);
         localStorage.setItem('mbl2pc_theme', dark ? 'dark' : 'light');
-        localStorage.setItem('mbl2pc_palette', palette || 'indigo');
+        localStorage.setItem(modeKey, pal);
         // sync picker UI state
         document.getElementById('tpLight').classList.toggle('active', !dark);
         document.getElementById('tpDark').classList.toggle('active', dark);
         document.querySelectorAll('.tp-swatch').forEach(b =>
-            b.classList.toggle('active', b.dataset.pal === (palette || 'indigo')));
+            b.classList.toggle('active', b.dataset.pal === pal));
     }
-    const savedTheme   = localStorage.getItem('mbl2pc_theme');
-    const savedPalette = localStorage.getItem('mbl2pc_palette') || 'indigo';
-    applyTheme(savedPalette, savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const savedTheme = localStorage.getItem('mbl2pc_theme');
+    // migrate legacy single-palette key so existing users don't lose their choice
+    const legacyPal = localStorage.getItem('mbl2pc_palette');
+    if (legacyPal) {
+        if (!localStorage.getItem('mbl2pc_palette_light')) localStorage.setItem('mbl2pc_palette_light', legacyPal);
+        if (!localStorage.getItem('mbl2pc_palette_dark'))  localStorage.setItem('mbl2pc_palette_dark',  legacyPal);
+    }
+    applyTheme(null, savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches);
 
     const themePopover = document.getElementById('themePopover');
     document.getElementById('themePickerBtn').addEventListener('click', e => {
         e.stopPropagation();
         themePopover.classList.toggle('open');
     });
-    document.getElementById('tpLight').addEventListener('click', () =>
-        applyTheme(html.getAttribute('data-palette') || 'indigo', false));
-    document.getElementById('tpDark').addEventListener('click', () =>
-        applyTheme(html.getAttribute('data-palette') || 'indigo', true));
+    // switching modes recalls that mode's saved palette
+    document.getElementById('tpLight').addEventListener('click', () => applyTheme(null, false));
+    document.getElementById('tpDark').addEventListener('click',  () => applyTheme(null, true));
+    // picking a swatch saves it for the current mode only
     document.querySelectorAll('.tp-swatch').forEach(b =>
         b.addEventListener('click', () =>
             applyTheme(b.dataset.pal, html.getAttribute('data-theme') === 'dark')));
