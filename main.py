@@ -435,6 +435,39 @@ async def send_file(
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
+# Storage diagnostics endpoint — returns detailed Supabase storage status
+@app.get("/storage-test")
+def storage_test(request: Request):
+    get_current_user(request)  # require login
+    if not supabase:
+        return {"ok": False, "error": "Supabase client not initialised (check SUPABASE_URL and SUPABASE_SERVICE_KEY env vars)"}
+    results = {}
+    # 1. List buckets
+    try:
+        buckets = supabase.storage.list_buckets()
+        results["buckets"] = [getattr(b, "name", str(b)) for b in (buckets or [])]
+    except Exception as e:
+        results["buckets_error"] = str(e)
+    # 2. Try a tiny upload
+    test_path = f"_test_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.txt"
+    try:
+        resp = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+            test_path, b"ok", {"content-type": "text/plain", "upsert": False}
+        )
+        results["upload"] = "ok"
+        # clean up
+        try:
+            supabase.storage.from_(SUPABASE_STORAGE_BUCKET).remove([test_path])
+        except Exception:
+            pass
+    except Exception as e:
+        results["upload_error"] = str(e)
+    results["bucket_name"] = SUPABASE_STORAGE_BUCKET
+    results["supabase_url"] = SUPABASE_URL[:40] + "…" if len(SUPABASE_URL) > 40 else SUPABASE_URL
+    results["service_key_prefix"] = SUPABASE_SERVICE_KEY[:20] + "…" if SUPABASE_SERVICE_KEY else "NOT SET"
+    return results
+
+
 # Retrieve messages for the current user from Supabase
 @app.get("/messages")
 def get_messages(request: Request, q: str = "", date: str = ""):

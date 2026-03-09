@@ -39,3 +39,35 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 -- ALTER TABLE messages DISABLE ROW LEVEL SECURITY;
 -- ALTER TABLE snippets DISABLE ROW LEVEL SECURITY;
 -- ALTER TABLE push_subscriptions DISABLE ROW LEVEL SECURITY;
+
+-- ── Storage bucket setup ────────────────────────────────────────────────────
+-- Creates the file/image upload bucket and the policies required to allow
+-- the server (service_role key) to upload and anyone to read public files.
+-- Run this if file/image uploads return 403 Forbidden.
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('mbl2pc-files', 'mbl2pc-files', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Drop old policies if re-running (idempotent)
+DROP POLICY IF EXISTS "mbl2pc service role upload"  ON storage.objects;
+DROP POLICY IF EXISTS "mbl2pc service role delete"  ON storage.objects;
+DROP POLICY IF EXISTS "mbl2pc public read"          ON storage.objects;
+
+-- Allow the server (service_role) to upload files
+CREATE POLICY "mbl2pc service role upload"
+ON storage.objects FOR INSERT
+TO service_role
+WITH CHECK (bucket_id = 'mbl2pc-files');
+
+-- Allow the server (service_role) to delete files
+CREATE POLICY "mbl2pc service role delete"
+ON storage.objects FOR DELETE
+TO service_role
+USING (bucket_id = 'mbl2pc-files');
+
+-- Allow anyone to read/download files (public bucket)
+CREATE POLICY "mbl2pc public read"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'mbl2pc-files');
