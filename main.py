@@ -135,11 +135,13 @@ def version():
 def health():
     return {"status": "ok"}
 
-# Allow all CORS for testing (so your phone can access it)
+# CORS: wildcard origin is incompatible with allow_credentials=True (Starlette raises
+# ValueError on startup). The app's frontend is same-origin so credentials are not
+# needed for cross-origin CORS requests.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -148,6 +150,12 @@ app.add_middleware(
 if not os.path.exists("static"):
     os.mkdir("static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Serve the service worker at the root so its scope covers the whole origin
+@app.get("/sw.js")
+def serve_sw():
+    from fastapi.responses import FileResponse as FR
+    return FR("static/sw.js", media_type="application/javascript")
 
 # Route for /send.html to serve the chat UI
 @app.get("/send.html")
