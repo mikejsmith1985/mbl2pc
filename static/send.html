@@ -53,6 +53,16 @@
         #pinnedPanel{flex-shrink:0;background:var(--pin-bg);border-bottom:2px solid var(--pin-border);display:none;max-height:160px;overflow-y:auto}
         .pinned-header{display:flex;align-items:center;justify-content:space-between;padding:.4rem .75rem;font-size:.78rem;font-weight:600;color:#92400e;cursor:pointer;user-select:none}
         [data-theme="dark"] .pinned-header{color:#fbbf24}
+
+        /* ── Palette overrides (accent colour only; dark/light base stays above) ── */
+        [data-palette="ocean"]{--header-from:#0891b2;--header-to:#0369a1;--sent-bg:#0891b2}
+        [data-palette="ocean"][data-theme="dark"]{--header-from:#075985;--header-to:#0c4a6e;--sent-bg:#0891b2}
+        [data-palette="forest"]{--header-from:#16a34a;--header-to:#15803d;--sent-bg:#16a34a}
+        [data-palette="forest"][data-theme="dark"]{--header-from:#166534;--header-to:#14532d;--sent-bg:#16a34a}
+        [data-palette="rose"]{--header-from:#e11d48;--header-to:#be185d;--sent-bg:#e11d48}
+        [data-palette="rose"][data-theme="dark"]{--header-from:#9f1239;--header-to:#881337;--sent-bg:#e11d48}
+        [data-palette="amber"]{--header-from:#d97706;--header-to:#b45309;--sent-bg:#d97706}
+        [data-palette="amber"][data-theme="dark"]{--header-from:#92400e;--header-to:#78350f;--sent-bg:#d97706}
         #pinnedList{padding:.25rem .75rem .5rem}
         .pinned-item{display:flex;align-items:center;gap:.5rem;padding:.25rem 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:.85rem}
         .pinned-item:last-child{border-bottom:none}
@@ -223,6 +233,18 @@
             .bubble img{max-width:140px;max-height:140px}
             .btn-round{width:32px;height:32px}
         }
+
+        /* Theme picker popover */
+        #themePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:14px;padding:.8rem;box-shadow:0 4px 20px rgba(0,0,0,.22);z-index:300;display:none;flex-direction:column;gap:.65rem;width:192px}
+        #themePopover.open{display:flex}
+        .tp-label{font-size:.72rem;font-weight:600;color:var(--meta);text-transform:uppercase;letter-spacing:.05em}
+        .tp-modes{display:flex;gap:.4rem}
+        .tp-mode{flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;padding:.3rem .2rem;font-size:.8rem;cursor:pointer;color:var(--recv-text);font-family:inherit;transition:background .15s,color .15s,border-color .15s}
+        .tp-mode.active{background:var(--header-from);color:#fff;border-color:var(--header-from)}
+        .tp-swatches{display:flex;gap:.5rem;justify-content:center}
+        .tp-swatch{width:30px;height:30px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s,border-color .15s;flex-shrink:0}
+        .tp-swatch:hover{transform:scale(1.12)}
+        .tp-swatch.active{border-color:var(--recv-text)}
     </style>
 </head>
 <body>
@@ -232,9 +254,13 @@
             <div class="app-name">mbl2pc</div>
             <div class="device-row">📱 <input id="deviceName" type="text" placeholder="Device name" title="Click to rename"></div>
         </div>
-        <button class="btn-icon" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
-            <svg id="themeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        <button class="btn-icon" id="themePickerBtn" title="Choose theme" aria-label="Choose theme">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c.55 0 1-.45 1-1 0-.26-.1-.51-.27-.7a.99.99 0 0 1-.23-.7c0-.55.45-1 1-1h1.18c3.03 0 5.5-2.47 5.5-5.5C20.18 6.37 16.54 2 12 2z"/>
+                <circle cx="6.5" cy="11.5" r="1.25" fill="currentColor" stroke="none"/>
+                <circle cx="9.5" cy="7.5" r="1.25" fill="currentColor" stroke="none"/>
+                <circle cx="14.5" cy="7.5" r="1.25" fill="currentColor" stroke="none"/>
+                <circle cx="17.5" cy="11.5" r="1.25" fill="currentColor" stroke="none"/>
             </svg>
         </button>
         <button class="btn-icon btn-notif" id="notifBtn" title="Enable notifications" aria-label="Notifications">
@@ -358,6 +384,23 @@
         <button id="datePickerClear">✕ Clear filter</button>
     </div>
 
+    <!-- Theme picker popover -->
+    <div id="themePopover">
+        <div class="tp-label">Mode</div>
+        <div class="tp-modes">
+            <button class="tp-mode" id="tpLight">☀️ Light</button>
+            <button class="tp-mode" id="tpDark">🌙 Dark</button>
+        </div>
+        <div class="tp-label">Colour</div>
+        <div class="tp-swatches">
+            <button class="tp-swatch" data-pal="indigo" style="background:linear-gradient(135deg,#4f46e5,#7c3aed)" title="Indigo"></button>
+            <button class="tp-swatch" data-pal="ocean"  style="background:linear-gradient(135deg,#0891b2,#0369a1)" title="Ocean"></button>
+            <button class="tp-swatch" data-pal="forest" style="background:linear-gradient(135deg,#16a34a,#15803d)" title="Forest"></button>
+            <button class="tp-swatch" data-pal="rose"   style="background:linear-gradient(135deg,#e11d48,#be185d)" title="Rose"></button>
+            <button class="tp-swatch" data-pal="amber"  style="background:linear-gradient(135deg,#d97706,#b45309)" title="Amber"></button>
+        </div>
+    </div>
+
     <script>
     'use strict';
     const API = window.location.origin;
@@ -373,17 +416,40 @@
     }
 
     // ── Theme ──────────────────────────────────────────────────────────
-    const themeIcon = document.getElementById('themeIcon');
-    function applyTheme(dark) {
+    function applyTheme(palette, dark) {
         html.setAttribute('data-theme', dark ? 'dark' : 'light');
-        themeIcon.innerHTML = dark
-            ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
-            : '<path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>';
+        html.setAttribute('data-palette', palette || 'indigo');
         localStorage.setItem('mbl2pc_theme', dark ? 'dark' : 'light');
+        localStorage.setItem('mbl2pc_palette', palette || 'indigo');
+        // sync picker UI state
+        document.getElementById('tpLight').classList.toggle('active', !dark);
+        document.getElementById('tpDark').classList.toggle('active', dark);
+        document.querySelectorAll('.tp-swatch').forEach(b =>
+            b.classList.toggle('active', b.dataset.pal === (palette || 'indigo')));
     }
-    const savedTheme = localStorage.getItem('mbl2pc_theme');
-    applyTheme(savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.getElementById('themeToggle').addEventListener('click', () => applyTheme(html.getAttribute('data-theme') !== 'dark'));
+    const savedTheme   = localStorage.getItem('mbl2pc_theme');
+    const savedPalette = localStorage.getItem('mbl2pc_palette') || 'indigo';
+    applyTheme(savedPalette, savedTheme ? savedTheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    const themePopover = document.getElementById('themePopover');
+    document.getElementById('themePickerBtn').addEventListener('click', e => {
+        e.stopPropagation();
+        themePopover.classList.toggle('open');
+    });
+    document.getElementById('tpLight').addEventListener('click', () =>
+        applyTheme(html.getAttribute('data-palette') || 'indigo', false));
+    document.getElementById('tpDark').addEventListener('click', () =>
+        applyTheme(html.getAttribute('data-palette') || 'indigo', true));
+    document.querySelectorAll('.tp-swatch').forEach(b =>
+        b.addEventListener('click', () =>
+            applyTheme(b.dataset.pal, html.getAttribute('data-theme') === 'dark')));
+    document.addEventListener('click', e => {
+        if (themePopover.classList.contains('open') &&
+            !themePopover.contains(e.target) &&
+            e.target.id !== 'themePickerBtn') {
+            themePopover.classList.remove('open');
+        }
+    });
 
     // ── Device name ────────────────────────────────────────────────────
     function detectDevice() {
