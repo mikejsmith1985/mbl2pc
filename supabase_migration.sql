@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS snippets (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Clipboard sync (latest clipboard content per user)
+CREATE TABLE IF NOT EXISTS clipboard (
+  user_id TEXT PRIMARY KEY,
+  content TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Push notification subscriptions
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -85,6 +85,11 @@ MIGRATIONS = [
         keys JSONB NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
     )""",
+    """CREATE TABLE IF NOT EXISTS clipboard (
+        user_id TEXT PRIMARY KEY,
+        content TEXT NOT NULL DEFAULT '',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
 ]
 
 @app.on_event("startup")
@@ -599,6 +604,41 @@ def delete_snippet(snippet_id: str, request: Request):
     try:
         supabase.table("snippets").delete().eq("id", snippet_id).eq("user_id", user['sub']).execute()
         return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+# ── Clipboard Sync ──────────────────────────────────────────────────────────────
+
+@app.get("/clipboard")
+def get_clipboard(request: Request):
+    """Return the latest synced clipboard content for the current user."""
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        resp = supabase.table("clipboard").select("content,updated_at").eq("user_id", user['sub']).execute()
+        if not resp.data:
+            return {"content": "", "updated_at": None}
+        row = resp.data[0]
+        return {"content": row.get("content", ""), "updated_at": row.get("updated_at")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+
+@app.post("/clipboard")
+async def set_clipboard(request: Request, content: str = Form("")):
+    """Upsert clipboard content for the current user."""
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase is not configured.")
+    try:
+        supabase.table("clipboard").upsert({
+            "user_id": user['sub'],
+            "content": content,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }, on_conflict="user_id").execute()
+        return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 

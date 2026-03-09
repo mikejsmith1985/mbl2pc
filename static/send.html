@@ -261,6 +261,25 @@
         .tp-size:nth-child(3){font-size:1rem}
         .tp-size:nth-child(4){font-size:1.15rem}
         .tp-size.active{background:var(--header-from);color:#fff;border-color:var(--header-from)}
+
+        /* Clipboard Sync panel */
+        #clipboardPanel{flex-shrink:0;background:var(--snip-bg);border-bottom:1px solid var(--snip-border);overflow:hidden;transition:max-height .2s}
+        #clipboardPanel.collapsed{max-height:38px}
+        #clipboardPanel:not(.collapsed){max-height:160px}
+        .clip-header{display:flex;align-items:center;justify-content:space-between;padding:.5rem .75rem;cursor:pointer;user-select:none;font-size:.82rem;font-weight:600;color:var(--recv-text)}
+        .clip-header .clip-title{display:flex;align-items:center;gap:.35rem}
+        .clip-header .clip-arrow{font-size:.7rem;color:var(--meta);transition:transform .2s}
+        #clipboardPanel:not(.collapsed) .clip-arrow{transform:rotate(180deg)}
+        #clipboardBody{padding:.25rem .75rem .5rem;display:flex;flex-direction:column;gap:.35rem}
+        #clipContent{font-size:.82rem;color:var(--recv-text);background:var(--surface);border:1px solid var(--input-border);border-radius:8px;padding:.4rem .6rem;min-height:36px;max-height:52px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;line-height:1.4}
+        #clipContent:empty::before{content:'Nothing synced yet.';color:var(--meta)}
+        #clipTimestamp{font-size:.7rem;color:var(--meta)}
+        .clip-btns{display:flex;gap:.4rem}
+        .clip-btn{border:none;border-radius:8px;padding:.3rem .7rem;font-size:.78rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .15s,color .15s}
+        .clip-btn-push{background:var(--header-from);color:#fff}
+        .clip-btn-push:hover{background:var(--header-to)}
+        .clip-btn-copy{background:var(--input-bg);color:var(--recv-text);border:1px solid var(--input-border)}
+        .clip-btn-copy:hover{border-color:var(--header-from);color:var(--header-from)}
     </style>
 </head>
 <body>
@@ -317,6 +336,23 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--meta);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" id="searchInput" placeholder="Search messages…" autocomplete="off">
         <button id="clearSearch">✕</button>
+    </div>
+
+    <div id="clipboardPanel" class="collapsed">
+        <div class="clip-header" id="clipboardToggle">
+            <span class="clip-title">📋 Clipboard Sync</span>
+            <span class="clip-arrow">▾</span>
+        </div>
+        <div id="clipboardBody">
+            <div id="clipContent"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+                <span id="clipTimestamp"></span>
+                <div class="clip-btns">
+                    <button class="clip-btn clip-btn-copy" id="clipCopyBtn">Copy</button>
+                    <button class="clip-btn clip-btn-push" id="clipPushBtn">📋 Push My Clipboard</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="spinner"><div class="spin"></div>Loading…</div>
@@ -1337,6 +1373,77 @@
         }
     }
 
+    // ── Clipboard Sync ─────────────────────────────────────────────────
+    let currentClipContent = '';
+
+    const clipPanel = document.getElementById('clipboardPanel');
+    const clipToggle = document.getElementById('clipboardToggle');
+    const clipContentEl = document.getElementById('clipContent');
+    const clipTimestampEl = document.getElementById('clipTimestamp');
+    const clipCopyBtn = document.getElementById('clipCopyBtn');
+    const clipPushBtn = document.getElementById('clipPushBtn');
+
+    // Persist collapse state
+    const CLIP_PANEL_KEY = 'mbl2pc_clip_open';
+    if (localStorage.getItem(CLIP_PANEL_KEY) === '1') clipPanel.classList.remove('collapsed');
+
+    clipToggle.addEventListener('click', () => {
+        const isCollapsed = clipPanel.classList.toggle('collapsed');
+        localStorage.setItem(CLIP_PANEL_KEY, isCollapsed ? '0' : '1');
+    });
+
+    async function fetchClipboard() {
+        try {
+            const res = await fetch('/clipboard');
+            if (!res.ok) return;
+            const data = await res.json();
+            currentClipContent = data.content || '';
+            clipContentEl.textContent = currentClipContent;
+            if (data.updated_at) {
+                const d = new Date(data.updated_at);
+                clipTimestampEl.textContent = 'Last synced: ' + d.toLocaleString();
+            } else {
+                clipTimestampEl.textContent = '';
+            }
+        } catch (_) {}
+    }
+
+    async function pushClipboard() {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            toast('Clipboard access not available (needs HTTPS + permission)', 'error'); return;
+        }
+        let text;
+        try {
+            text = await navigator.clipboard.readText();
+        } catch (e) {
+            toast('Could not read clipboard — check browser permissions', 'error'); return;
+        }
+        if (!text) { toast('Clipboard is empty', 'error'); return; }
+        try {
+            const fd = new FormData();
+            fd.append('content', text);
+            const res = await fetch('/clipboard', { method: 'POST', body: fd });
+            if (!res.ok) throw new Error(await res.text());
+            toast('Clipboard pushed!', 'success');
+            fetchClipboard();
+        } catch (e) {
+            toast('Error pushing clipboard', 'error');
+        }
+    }
+
+    async function copyClipboard() {
+        if (!currentClipContent) { toast('Nothing to copy', 'error'); return; }
+        try {
+            await navigator.clipboard.writeText(currentClipContent);
+            toast('Copied to clipboard!', 'success');
+        } catch (_) {
+            toast('Could not copy — check browser permissions', 'error');
+        }
+    }
+
+    clipPushBtn.addEventListener('click', pushClipboard);
+    clipCopyBtn.addEventListener('click', copyClipboard);
+
     // ── Init ───────────────────────────────────────────────────────────
     document.getElementById('spinner').style.display = 'flex';
     document.getElementById('chat').style.display = 'none';
@@ -1344,11 +1451,13 @@
     loadVersion();
     loadSnippets();
     fetchMessages();
+    fetchClipboard();
     handleShareTarget();
     setInterval(() => {
         const q = searchInput.value.trim();
         // Don't auto-poll when browsing a specific date — only refresh current view
         fetchMessages(q, activeDateFilter);
+        fetchClipboard();
     }, 4000);
     </script>
 </body>
