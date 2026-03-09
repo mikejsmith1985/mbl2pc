@@ -7,7 +7,7 @@ except ImportError:
 
 # --- Google OAuth setup ---
 import os
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Response
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Response, BackgroundTasks
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -317,7 +317,7 @@ def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
 
 # Text message endpoint
 @app.post("/send")
-async def send_message(request: Request, msg: str = Form(""), sender: str = Form(""), expires_hours: int = Form(0)):
+async def send_message(request: Request, background_tasks: BackgroundTasks, msg: str = Form(""), sender: str = Form(""), expires_hours: int = Form(0)):
     try:
         user = get_current_user(request)
     except HTTPException as e:
@@ -340,7 +340,7 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         from datetime import timedelta
         item["expires_at"] = (datetime.now() + timedelta(hours=expires_hours)).isoformat(timespec="seconds")
     _supabase_insert(item)
-    _notify_other_devices(user['sub'], sender, msg)
+    background_tasks.add_task(_notify_other_devices, user['sub'], sender, msg)
 
     # Forward to Forge Terminal if configured so the agent can receive replies
     if FORGE_INBOUND_URL and WEBHOOK_SECRET and msg.strip():
@@ -599,37 +599,77 @@ async def push_subscribe(request: Request, sub: PushSubscription):
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
-def _send_push_notification(sub_data: dict, title: str, body: str, url: str = "/send.html"):
-    """Fire-and-forget push notification to a single subscription."""
+@app.post("/push/test")
+async def push_test(request: Request):
+    """Send an immediate test push to all registered subscriptions for the current user."""
+    import asyncio, concurrent.futures
+    user = get_current_user(request)
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
     if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
-        return
+        raise HTTPException(status_code=503, detail="VAPID keys not configured on server")
+    resp = supabase.table("push_subscriptions").select("endpoint,keys").eq("user_id", user['sub']).execute()
+    subs = resp.data or []
+    if not subs:
+        raise HTTPException(status_code=404, detail="No push subscriptions found for your account. Enable notifications first.")
+    loop = asyncio.get_event_loop()
+    results = []
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        futs = [loop.run_in_executor(pool, _send_push_notification, s, "mbl2pc test 🔔", "If you see this, push notifications are working!", "/send.html") for s in subs]
+        results = await asyncio.gather(*futs)
+    ok = sum(1 for r in results if r)
+    return {"subscriptions": len(subs), "sent": ok, "failed": len(subs) - ok}
+
+
+def _send_push_notification(sub_data: dict, title: str, body: str, url: str = "/send.html") -> bool:
+    """Send push to a single subscription. Returns True on success, False on failure."""
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        print("[PUSH] Skipped: VAPID keys not configured", file=sys.stderr)
+        return False
     try:
         from pywebpush import webpush, WebPushException
         import json
-        webpush(
+        endpoint = sub_data.get("endpoint", "")
+        print(f"[PUSH] Sending to {endpoint[:60]}…", file=sys.stderr)
+        resp = webpush(
             subscription_info={
-                "endpoint": sub_data["endpoint"],
+                "endpoint": endpoint,
                 "keys": sub_data["keys"],
             },
             data=json.dumps({"title": title, "body": body, "url": url}),
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims={"sub": f"mailto:{VAPID_CLAIMS_EMAIL}"},
         )
+        print(f"[PUSH] Sent OK (status {resp.status_code})", file=sys.stderr)
+        return True
     except Exception as e:
-        print(f"[WARN] Push failed for {sub_data.get('endpoint','')[:40]}: {e}", file=sys.stderr)
+        endpoint = sub_data.get('endpoint', '')[:60]
+        print(f"[PUSH] FAILED for {endpoint}: {e}", file=sys.stderr)
+        # If the subscription is gone (410 Gone or 404) remove it from DB
+        err_str = str(e)
+        if supabase and ('410' in err_str or '404' in err_str):
+            try:
+                supabase.table("push_subscriptions").delete().eq("endpoint", sub_data.get("endpoint","")).execute()
+                print(f"[PUSH] Removed stale subscription", file=sys.stderr)
+            except Exception:
+                pass
+        return False
 
 
 def _notify_other_devices(user_id: str, sender: str, text_preview: str):
-    """Send push to all subscriptions for this user except (we can't filter by device here, send all)."""
+    """Send push to all subscriptions for this user."""
     if not supabase or not VAPID_PRIVATE_KEY:
+        print(f"[PUSH] _notify_other_devices skipped: supabase={bool(supabase)} vapid={bool(VAPID_PRIVATE_KEY)}", file=sys.stderr)
         return
     try:
         resp = supabase.table("push_subscriptions").select("endpoint,keys").eq("user_id", user_id).execute()
+        subs = resp.data or []
+        print(f"[PUSH] Notifying {len(subs)} subscription(s) for user {user_id[:12]}…", file=sys.stderr)
         preview = (text_preview or "📎 File")[:80]
-        for sub in (resp.data or []):
+        for sub in subs:
             _send_push_notification(sub, f"mbl2pc — {sender}", preview)
     except Exception as e:
-        print(f"[WARN] Push notify error: {e}", file=sys.stderr)
+        print(f"[PUSH] _notify_other_devices error: {e}", file=sys.stderr)
 
 
 # ── Server-to-server Webhook (no OAuth required) ────────────────────────────────
