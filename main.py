@@ -309,6 +309,9 @@ def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
             {"content-type": content_type, "upsert": "false"}
         )
         url_resp = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(path)
+        # supabase-py v2+ returns PublicUrlResponse(publicUrl=...) instead of a plain string
+        if hasattr(url_resp, 'public_url'):
+            return url_resp.public_url
         return url_resp
     except Exception as e:
         print(f"[ERROR] Supabase storage upload error: {e}", file=sys.stderr)

@@ -117,7 +117,7 @@
         .bubble.received{color:var(--recv-text);align-self:flex-start;border-bottom-left-radius:4px;border:2px solid}
         .bubble.is-starred{box-shadow:0 0 0 2px #f59e0b,var(--shadow)}
         .bubble .sender{font-size:.7rem;font-weight:600;opacity:.85;margin-bottom:2px}
-        .bubble .text{font-size:.95rem;line-height:1.45}
+        .bubble .text{font-size:.95rem;line-height:1.45;white-space:pre-wrap;word-break:break-word;tab-size:4}
         .bubble .timestamp{font-size:.65rem;opacity:.75;align-self:flex-end;margin-top:3px}
         .bubble img{max-width:220px;max-height:220px;border-radius:10px;margin-top:4px;display:block;object-fit:cover}
         .bubble .starred-badge{position:absolute;top:-6px;right:-4px;font-size:.75rem}
@@ -164,10 +164,15 @@
         #cancelSnippetBtn{background:none;border:1px solid var(--input-border);border-radius:8px;padding:.3rem .8rem;font-size:.82rem;cursor:pointer;color:var(--meta)}
 
         /* Attach preview */
-        #attachPreview{flex-shrink:0;background:var(--surface);padding:0 .75rem .4rem;display:none;align-items:center;gap:.5rem;border-top:1px solid var(--input-border);font-size:.82rem;color:var(--meta)}
-        #attachPreview .preview-thumb{width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid var(--input-border)}
-        #attachPreview .preview-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--recv-text);font-weight:500}
-        #attachPreview .btn-clear{background:none;border:none;cursor:pointer;color:var(--meta);font-size:1.1rem;line-height:1}
+        #attachPreview{flex-shrink:0;background:var(--surface);padding:.4rem .75rem;display:none;flex-wrap:wrap;align-items:center;gap:.4rem;border-top:1px solid var(--input-border);font-size:.82rem;color:var(--meta)}
+        .attach-chip{display:flex;align-items:center;gap:.3rem;background:var(--input-bg);border:1px solid var(--input-border);border-radius:20px;padding:.2rem .5rem .2rem .3rem;max-width:180px}
+        .attach-chip .preview-thumb{width:28px;height:28px;object-fit:cover;border-radius:14px;flex-shrink:0}
+        .attach-chip .chip-icon{font-size:1.1rem;flex-shrink:0;line-height:1}
+        .attach-chip .chip-name{font-size:.78rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--recv-text)}
+        .attach-chip .chip-del{background:none;border:none;cursor:pointer;color:var(--meta);font-size:.9rem;line-height:1;flex-shrink:0;padding:0 .1rem}
+        .attach-chip .chip-del:hover{color:#e11d48}
+        #clearAllAttach{background:none;border:none;cursor:pointer;color:var(--meta);font-size:.78rem;padding:.2rem .4rem;border-radius:8px;white-space:nowrap;margin-left:auto}
+        #clearAllAttach:hover{color:#e11d48}
 
         /* Input bar */
         .input-bar{flex-shrink:0;background:var(--surface);padding:.6rem max(calc(.75rem + env(safe-area-inset-right)),.75rem) .6rem max(calc(.75rem + env(safe-area-inset-left)),.75rem);border-top:1px solid var(--input-border);display:flex;align-items:flex-end;gap:.4rem}
@@ -334,9 +339,7 @@
     </div>
 
     <div id="attachPreview">
-        <span id="previewContent"></span>
-        <span id="previewName" class="preview-name"></span>
-        <button class="btn-clear" id="clearAttach">✕</button>
+        <button id="clearAllAttach" style="display:none">Clear all</button>
     </div>
 
     <div style="position:relative">
@@ -352,7 +355,7 @@
     </div>
 
     <div class="input-bar">
-        <input type="file" id="fileInput" accept="*">
+        <input type="file" id="fileInput" accept="*" multiple>
         <button class="btn-round btn-attach" id="attachBtn" title="Attach file" aria-label="Attach file">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -966,34 +969,52 @@
     });
 
     // ── Attachment ─────────────────────────────────────────────────────
-    let attachedFile = null;
+    let attachedFiles = [];
     const fileInput = document.getElementById('fileInput');
     const attachPreview = document.getElementById('attachPreview');
-    const previewContent = document.getElementById('previewContent');
-    const previewName = document.getElementById('previewName');
-    function showAttachPreview(file) {
-        attachedFile = file;
-        previewName.textContent = file.name;
-        if (file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onload = e => { previewContent.innerHTML = `<img class="preview-thumb" src="${e.target.result}" alt="">`; };
-            reader.readAsDataURL(file);
-        } else {
-            previewContent.innerHTML = `<span style="font-size:1.6rem">${ficon(file.name)}</span>`;
-        }
-        attachPreview.style.display = 'flex';
+    const clearAllAttach = document.getElementById('clearAllAttach');
+
+    function addFilesToPreview(files) {
+        Array.from(files).forEach(file => {
+            if (attachedFiles.some(f => f.name === file.name && f.size === file.size)) return; // skip duplicates
+            attachedFiles.push(file);
+            const chip = document.createElement('div');
+            chip.className = 'attach-chip';
+            chip.dataset.idx = attachedFiles.length - 1;
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    chip.innerHTML = `<img class="preview-thumb" src="${ev.target.result}" alt=""><span class="chip-name">${esc(file.name)}</span><button class="chip-del" title="Remove">✕</button>`;
+                    chip.querySelector('.chip-del').onclick = () => removeChip(chip, file);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                chip.innerHTML = `<span class="chip-icon">${ficon(file.name)}</span><span class="chip-name">${esc(file.name)}</span><button class="chip-del" title="Remove">✕</button>`;
+                chip.querySelector('.chip-del').onclick = () => removeChip(chip, file);
+            }
+            attachPreview.insertBefore(chip, clearAllAttach);
+        });
+        attachPreview.style.display = attachedFiles.length ? 'flex' : 'none';
+        clearAllAttach.style.display = attachedFiles.length > 1 ? '' : 'none';
+    }
+    function removeChip(chip, file) {
+        attachedFiles = attachedFiles.filter(f => f !== file);
+        chip.remove();
+        attachPreview.style.display = attachedFiles.length ? 'flex' : 'none';
+        clearAllAttach.style.display = attachedFiles.length > 1 ? '' : 'none';
     }
     function clearAttach() {
-        attachedFile = null; fileInput.value = '';
-        previewContent.innerHTML = ''; previewName.textContent = '';
+        attachedFiles = []; fileInput.value = '';
+        attachPreview.querySelectorAll('.attach-chip').forEach(c => c.remove());
         attachPreview.style.display = 'none';
+        clearAllAttach.style.display = 'none';
     }
     document.getElementById('attachBtn').addEventListener('click', () => fileInput.click());
-    document.getElementById('clearAttach').addEventListener('click', clearAttach);
-    fileInput.addEventListener('change', () => { if (fileInput.files[0]) showAttachPreview(fileInput.files[0]); });
-    document.addEventListener('paste', e => { if (e.clipboardData?.files[0]) showAttachPreview(e.clipboardData.files[0]); });
+    clearAllAttach.addEventListener('click', clearAttach);
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) addFilesToPreview(fileInput.files); });
+    document.addEventListener('paste', e => { if (e.clipboardData?.files.length) addFilesToPreview(e.clipboardData.files); });
     document.addEventListener('dragover', e => e.preventDefault());
-    document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files[0]) showAttachPreview(e.dataTransfer.files[0]); });
+    document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files.length) addFilesToPreview(e.dataTransfer.files); });
 
     // ── Auto-grow textarea ─────────────────────────────────────────────
     const msgInput = document.getElementById('msgInput');
@@ -1004,9 +1025,12 @@
     document.getElementById('sendBtn').addEventListener('click', sendMessage);
     async function sendMessage() {
         const text = msgInput.value.trim();
-        if (!text && !attachedFile) return;
-        if (attachedFile) {
-            await sendAttachment(attachedFile, text);
+        if (!text && !attachedFiles.length) return;
+        if (attachedFiles.length) {
+            // Send each file as its own message; caption only on the first
+            for (let i = 0; i < attachedFiles.length; i++) {
+                await sendAttachment(attachedFiles[i], i === 0 ? text : '');
+            }
         } else {
             await sendText(text);
         }
@@ -1067,7 +1091,7 @@
             msgInput.value = text;
             msgInput.style.height = 'auto';
             msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
-            await sendText();
+            await sendText(text);
         } catch (_) {
             toast('Clipboard permission denied — paste manually', 'error');
         }
