@@ -280,7 +280,7 @@
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
         </button>
-        <button class="btn-icon" id="testNotifBtn" title="Send test notification" aria-label="Test notification" style="display:none">
+        <button class="btn-icon" id="testNotifBtn" title="Test / diagnose notifications" aria-label="Test notification">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
             </svg>
@@ -1087,24 +1087,19 @@
     }
 
     function updateBellState() {
-        const testBtn = document.getElementById('testNotifBtn');
         notifBtn.classList.remove('active', 'blocked');
         if (!('Notification' in window)) {
             notifBtn.title = 'Notifications not supported in this browser';
-            testBtn.style.display = 'none';
             return;
         }
         if (isBellActive()) {
             notifBtn.classList.add('active');
             notifBtn.title = 'Notifications on — tap to turn off';
-            testBtn.style.display = '';
         } else if (Notification.permission === 'denied') {
             notifBtn.classList.add('blocked');
             notifBtn.title = 'Notifications blocked — tap for help';
-            testBtn.style.display = 'none';
         } else {
             notifBtn.title = 'Enable notifications';
-            testBtn.style.display = 'none';
         }
     }
 
@@ -1257,13 +1252,36 @@
     updateBellState(); // set correct color on page load
 
     document.getElementById('testNotifBtn').addEventListener('click', async () => {
-        toast('Sending test notification…');
+        // Show local diagnostics first
+        const hasSW   = 'serviceWorker' in navigator;
+        const hasPush = 'PushManager' in window;
+        const perm    = ('Notification' in window) ? Notification.permission : 'unsupported';
+        const notifPref = localStorage.getItem('mbl2pc_notif') || '(not set)';
+        let swScope = 'none';
+        if (hasSW) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            swScope = regs.map(r => r.scope).join(', ') || 'none registered';
+        }
+        let subEndpoint = 'none';
+        if (hasSW && hasPush) {
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                subEndpoint = sub ? sub.endpoint.slice(0, 60) + '…' : 'no subscription';
+            } catch(e) { subEndpoint = 'error: ' + e.message; }
+        }
+        console.log('[PUSH DIAG]', { hasSW, hasPush, perm, notifPref, swScope, subEndpoint });
+        toast(`SW:${hasSW} Push:${hasPush} Perm:${perm} Pref:${notifPref}`);
+
+        // Then attempt a server-side test push
+        if (perm !== 'granted') { toast('Permission not granted — tap the bell first', 'error'); return; }
+        toast('Sending test push to server…');
         try {
             const res = await fetch(`${API}/push/test`, { method: 'POST' });
             const d = await res.json();
-            if (!res.ok) toast(d.detail || 'Test failed', 'error');
-            else toast(`Test sent to ${d.subscriptions} device(s) — ${d.sent} ok, ${d.failed} failed`);
-        } catch (e) { toast('Test failed: ' + e.message, 'error'); }
+            if (!res.ok) toast('Server: ' + (d.detail || 'error'), 'error');
+            else toast(`Server: ${d.subscriptions} sub(s), ${d.sent} sent, ${d.failed} failed`);
+        } catch (e) { toast('Server test failed: ' + e.message, 'error'); }
     });
 
     // ── Orientation / resize: re-scroll to bottom ──────────────────────
