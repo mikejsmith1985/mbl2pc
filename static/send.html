@@ -352,6 +352,10 @@
                     <button class="clip-btn clip-btn-push" id="clipPushBtn">📋 Push My Clipboard</button>
                 </div>
             </div>
+            <div style="font-size:.72rem;color:var(--meta);margin-top:.1rem">
+                💡 <strong>Fastest flow:</strong> On phone, use <em>Share → mbl2pc</em> to auto-sync instantly.
+                On PC, <button id="clipBookmarkletBtn" style="background:none;border:none;color:var(--header-from);cursor:pointer;font-size:.72rem;padding:0;font-family:inherit;text-decoration:underline">copy the 1-click bookmarklet</button> to auto-paste without opening the app.
+            </div>
         </div>
     </div>
 
@@ -1114,11 +1118,20 @@
         const p = new URLSearchParams(window.location.search);
         const parts = [p.get('title'), p.get('text'), p.get('url')].filter(Boolean);
         if (parts.length) {
-            msgInput.value = parts.join(' ');
+            const sharedText = parts.join(' ');
+            msgInput.value = sharedText;
             msgInput.style.height = 'auto';
             msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
             window.history.replaceState({}, '', '/send.html');
-            toast('Content ready to send!');
+            // Auto-push to clipboard so PC can copy instantly via bookmarklet
+            const fd = new FormData();
+            fd.append('content', sharedText);
+            fetch('/clipboard', { method: 'POST', body: fd })
+                .then(() => {
+                    fetchClipboard();
+                    toast('📋 Clipboard synced! Hit Copy on your PC.');
+                })
+                .catch(() => toast('Content ready to send!'));
         }
     }
 
@@ -1443,6 +1456,16 @@
 
     clipPushBtn.addEventListener('click', pushClipboard);
     clipCopyBtn.addEventListener('click', copyClipboard);
+    document.getElementById('clipBookmarkletBtn').addEventListener('click', async () => {
+        const origin = window.location.origin;
+        const bm = `javascript:(function(){fetch('${origin}/clipboard').then(r=>r.json()).then(d=>{if(!d.content){alert('Nothing synced yet.');return;}navigator.clipboard.writeText(d.content).then(()=>alert('\\u2713 Copied: '+d.content.slice(0,80)+(d.content.length>80?'\\u2026':''))).catch(()=>prompt('Copy this:',d.content));}).catch(()=>alert('Could not reach mbl2pc'));})();`;
+        try {
+            await navigator.clipboard.writeText(bm);
+            toast('Bookmarklet copied! Paste it into a new bookmark URL on your PC.', 'success');
+        } catch (_) {
+            prompt('Copy this bookmarklet URL:', bm);
+        }
+    });
 
     // ── Init ───────────────────────────────────────────────────────────
     document.getElementById('spinner').style.display = 'flex';
