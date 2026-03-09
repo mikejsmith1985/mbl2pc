@@ -116,9 +116,9 @@
         .bubble.sent{background:var(--sent-bg);color:var(--sent-text);align-self:flex-end;border-bottom-right-radius:4px}
         .bubble.received{color:var(--recv-text);align-self:flex-start;border-bottom-left-radius:4px;border:2px solid}
         .bubble.is-starred{box-shadow:0 0 0 2px #f59e0b,var(--shadow)}
-        .bubble .sender{font-size:.7rem;font-weight:600;opacity:.7;margin-bottom:2px}
+        .bubble .sender{font-size:.7rem;font-weight:600;opacity:.85;margin-bottom:2px}
         .bubble .text{font-size:.95rem;line-height:1.45}
-        .bubble .timestamp{font-size:.65rem;opacity:.55;align-self:flex-end;margin-top:3px}
+        .bubble .timestamp{font-size:.65rem;opacity:.75;align-self:flex-end;margin-top:3px}
         .bubble img{max-width:220px;max-height:220px;border-radius:10px;margin-top:4px;display:block;object-fit:cover}
         .bubble .starred-badge{position:absolute;top:-6px;right:-4px;font-size:.75rem}
 
@@ -511,8 +511,27 @@
     });
 
     // ── Per-device palette ─────────────────────────────────────────────
-    const PAL_L = [{bg:'#fef3c7',b:'#f59e0b'},{bg:'#d1fae5',b:'#10b981'},{bg:'#fce7f3',b:'#ec4899'},{bg:'#e0e7ff',b:'#6366f1'},{bg:'#ffedd5',b:'#f97316'},{bg:'#f0fdf4',b:'#22c55e'},{bg:'#fdf2f8',b:'#a855f7'},{bg:'#fff1f2',b:'#f43f5e'}];
-    const PAL_D = [{bg:'#451a03',b:'#f59e0b'},{bg:'#022c22',b:'#10b981'},{bg:'#500724',b:'#ec4899'},{bg:'#1e1b4b',b:'#6366f1'},{bg:'#431407',b:'#f97316'},{bg:'#052e16',b:'#22c55e'},{bg:'#2e1065',b:'#a855f7'},{bg:'#4c0519',b:'#f43f5e'}];
+    // t = high-contrast text colour guaranteed to read on bg
+    const PAL_L = [
+        {bg:'#fef3c7',b:'#d97706',t:'#451a03'},
+        {bg:'#d1fae5',b:'#059669',t:'#064e3b'},
+        {bg:'#fce7f3',b:'#db2777',t:'#500724'},
+        {bg:'#e0e7ff',b:'#4f46e5',t:'#1e1b4b'},
+        {bg:'#ffedd5',b:'#ea580c',t:'#431407'},
+        {bg:'#dcfce7',b:'#16a34a',t:'#14532d'},
+        {bg:'#f3e8ff',b:'#9333ea',t:'#3b0764'},
+        {bg:'#ffe4e6',b:'#e11d48',t:'#4c0519'},
+    ];
+    const PAL_D = [
+        {bg:'#451a03',b:'#f59e0b',t:'#fef3c7'},
+        {bg:'#022c22',b:'#34d399',t:'#d1fae5'},
+        {bg:'#500724',b:'#f472b6',t:'#fce7f3'},
+        {bg:'#1e1b4b',b:'#818cf8',t:'#e0e7ff'},
+        {bg:'#431407',b:'#fb923c',t:'#ffedd5'},
+        {bg:'#052e16',b:'#4ade80',t:'#dcfce7'},
+        {bg:'#2e1065',b:'#c084fc',t:'#f3e8ff'},
+        {bg:'#4c0519',b:'#fb7185',t:'#ffe4e6'},
+    ];
     function senderPalette(name) {
         let h = 0;
         for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
@@ -653,6 +672,7 @@
                 const p = senderPalette(m.sender||'unknown');
                 div.style.background = p.bg;
                 div.style.borderColor = p.b;
+                div.style.color = p.t;
             }
             let inner = `<span class="sender">${esc(m.sender||'unknown')}</span>`;
             if (m.starred) inner += `<span class="starred-badge">⭐</span>`;
