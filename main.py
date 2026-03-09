@@ -8,6 +8,7 @@ except ImportError:
 # --- Google OAuth setup ---
 import os
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Response, BackgroundTasks
+from fastapi import WebSocket, WebSocketDisconnect
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -118,6 +119,54 @@ def run_migrations():
         print("[WARN] psycopg2 not installed — cannot run auto-migration.", file=sys.stderr)
     except Exception as e:
         print(f"[WARN] Auto-migration failed (non-fatal): {e}", file=sys.stderr)
+
+
+# ── WebSocket connection manager ────────────────────────────────────────────────
+from typing import Dict, List
+
+class ConnectionManager:
+    def __init__(self):
+        self.active: Dict[str, List[WebSocket]] = {}  # user_id -> [ws, ...]
+
+    async def connect(self, ws: WebSocket, user_id: str):
+        await ws.accept()
+        self.active.setdefault(user_id, []).append(ws)
+
+    def disconnect(self, ws: WebSocket, user_id: str):
+        conns = self.active.get(user_id, [])
+        if ws in conns:
+            conns.remove(ws)
+
+    async def broadcast(self, user_id: str, data: dict):
+        conns = list(self.active.get(user_id, []))
+        dead = []
+        for ws in conns:
+            try:
+                await ws.send_json(data)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws, user_id)
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    user = websocket.session.get('user')
+    if not user or not isinstance(user, dict) or 'sub' not in user:
+        await websocket.close(code=4001)
+        return
+    user_id = user['sub']
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            # Receive keepalive pings from client; ignore content
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)
+    except Exception:
+        manager.disconnect(websocket, user_id)
 
 
 # Expose git commit hash as version
@@ -367,6 +416,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks, msg:
         except Exception as e:
             print(f"[WARN] Could not forward message to Forge: {e}", file=sys.stderr)
 
+    await manager.broadcast(user['sub'], {"type": "new_message"})
     return {"status": "Message received"}
 
 
@@ -401,6 +451,7 @@ async def send_image(
         "user_id": user['sub']
     }
     _supabase_insert(item)
+    await manager.broadcast(user['sub'], {"type": "new_message"})
     return {"status": "Image received", "image_url": image_url}
 
 
@@ -437,6 +488,7 @@ async def send_file(
     }
     _supabase_insert(item)
     _notify_other_devices(user['sub'], sender, text or original_name)
+    await manager.broadcast(user['sub'], {"type": "new_message"})
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
@@ -638,6 +690,7 @@ async def set_clipboard(request: Request, content: str = Form("")):
             "content": content,
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }, on_conflict="user_id").execute()
+        await manager.broadcast(user['sub'], {"type": "clipboard_update"})
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")

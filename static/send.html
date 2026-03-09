@@ -1467,6 +1467,45 @@
         }
     });
 
+    // ── WebSocket ──────────────────────────────────────────────────────
+    let ws = null;
+    let wsBackoff = 1000; // ms, doubles on each failure up to 30s
+
+    function connectWS() {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+        ws.onopen = () => {
+            wsBackoff = 1000; // reset on success
+        };
+
+        ws.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'new_message') {
+                    fetchMessages(searchInput.value.trim(), activeDateFilter);
+                } else if (data.type === 'clipboard_update') {
+                    fetchClipboard();
+                }
+            } catch (_) {}
+        };
+
+        ws.onclose = () => {
+            ws = null;
+            // Reconnect with backoff
+            setTimeout(connectWS, wsBackoff);
+            wsBackoff = Math.min(wsBackoff * 2, 30000);
+        };
+
+        ws.onerror = () => { ws && ws.close(); };
+    }
+
+    // Send keepalive ping every 25s to prevent idle disconnects
+    setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping');
+    }, 25000);
+
     // ── Init ───────────────────────────────────────────────────────────
     document.getElementById('spinner').style.display = 'flex';
     document.getElementById('chat').style.display = 'none';
@@ -1476,11 +1515,13 @@
     fetchMessages();
     fetchClipboard();
     handleShareTarget();
+    connectWS();
+    // Fallback poll — only fires when WebSocket is not connected
     setInterval(() => {
-        const q = searchInput.value.trim();
-        // Don't auto-poll when browsing a specific date — only refresh current view
-        fetchMessages(q, activeDateFilter);
-        fetchClipboard();
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            fetchMessages(searchInput.value.trim(), activeDateFilter);
+            fetchClipboard();
+        }
     }, 4000);
     </script>
 </body>
