@@ -54,15 +54,19 @@
         .pinned-header{display:flex;align-items:center;justify-content:space-between;padding:.4rem .75rem;font-size:.78rem;font-weight:600;color:#92400e;cursor:pointer;user-select:none}
         [data-theme="dark"] .pinned-header{color:#fbbf24}
 
-        /* ── Palette overrides (accent colour only; dark/light base stays above) ── */
-        [data-palette="ocean"]{--header-from:#0891b2;--header-to:#0369a1;--sent-bg:#0891b2}
-        [data-palette="ocean"][data-theme="dark"]{--header-from:#075985;--header-to:#0c4a6e;--sent-bg:#0891b2}
-        [data-palette="forest"]{--header-from:#16a34a;--header-to:#15803d;--sent-bg:#16a34a}
-        [data-palette="forest"][data-theme="dark"]{--header-from:#166534;--header-to:#14532d;--sent-bg:#16a34a}
-        [data-palette="rose"]{--header-from:#e11d48;--header-to:#be185d;--sent-bg:#e11d48}
-        [data-palette="rose"][data-theme="dark"]{--header-from:#9f1239;--header-to:#881337;--sent-bg:#e11d48}
-        [data-palette="amber"]{--header-from:#d97706;--header-to:#b45309;--sent-bg:#d97706}
-        [data-palette="amber"][data-theme="dark"]{--header-from:#92400e;--header-to:#78350f;--sent-bg:#d97706}
+        /* ── Palette overrides — header, bubbles, page tint, borders ── */
+        /* Ocean */
+        [data-palette="ocean"]{--header-from:#0891b2;--header-to:#0369a1;--sent-bg:#0891b2;--bg:#ecfeff;--surface:#f8feff;--recv-bg:#e0f9ff;--input-bg:#ecfeff;--input-border:#a5f3fc;--pin-bg:#ecfeff;--pin-border:#0891b2;--snip-bg:#f0fdff;--snip-border:#a5f3fc}
+        [data-palette="ocean"][data-theme="dark"]{--header-from:#075985;--header-to:#0c4a6e;--sent-bg:#0891b2;--bg:#071e28;--surface:#0d2d3d;--recv-bg:#0d2d3d;--input-bg:#0d2d3d;--input-border:#155e75;--pin-bg:#07181f;--pin-border:#0891b2;--snip-bg:#071e28;--snip-border:#155e75}
+        /* Forest */
+        [data-palette="forest"]{--header-from:#16a34a;--header-to:#15803d;--sent-bg:#16a34a;--bg:#f0fdf4;--surface:#f8fff9;--recv-bg:#dcfce7;--input-bg:#dcfce7;--input-border:#bbf7d0;--pin-bg:#f0fdf4;--pin-border:#16a34a;--snip-bg:#f0fdf4;--snip-border:#bbf7d0}
+        [data-palette="forest"][data-theme="dark"]{--header-from:#166534;--header-to:#14532d;--sent-bg:#16a34a;--bg:#071a0e;--surface:#0d2d18;--recv-bg:#0d2d18;--input-bg:#0d2d18;--input-border:#14532d;--pin-bg:#071a0e;--pin-border:#16a34a;--snip-bg:#071a0e;--snip-border:#14532d}
+        /* Rose */
+        [data-palette="rose"]{--header-from:#e11d48;--header-to:#be185d;--sent-bg:#e11d48;--bg:#fff1f2;--surface:#fff8f9;--recv-bg:#ffe4e6;--input-bg:#ffe4e6;--input-border:#fecdd3;--pin-bg:#fff1f2;--pin-border:#e11d48;--snip-bg:#fff1f2;--snip-border:#fecdd3}
+        [data-palette="rose"][data-theme="dark"]{--header-from:#9f1239;--header-to:#881337;--sent-bg:#e11d48;--bg:#1c0410;--surface:#2d0a1a;--recv-bg:#2d0a1a;--input-bg:#2d0a1a;--input-border:#881337;--pin-bg:#1c0410;--pin-border:#e11d48;--snip-bg:#1c0410;--snip-border:#881337}
+        /* Amber */
+        [data-palette="amber"]{--header-from:#d97706;--header-to:#b45309;--sent-bg:#d97706;--bg:#fffbeb;--surface:#fefdf8;--recv-bg:#fef3c7;--input-bg:#fef3c7;--input-border:#fde68a;--pin-bg:#fffbeb;--pin-border:#d97706;--snip-bg:#fffbeb;--snip-border:#fde68a}
+        [data-palette="amber"][data-theme="dark"]{--header-from:#92400e;--header-to:#78350f;--sent-bg:#d97706;--bg:#1c0e03;--surface:#2d1a06;--recv-bg:#2d1a06;--input-bg:#2d1a06;--input-border:#78350f;--pin-bg:#1c0e03;--pin-border:#d97706;--snip-bg:#1c0e03;--snip-border:#78350f}
         #pinnedList{padding:.25rem .75rem .5rem}
         .pinned-item{display:flex;align-items:center;gap:.5rem;padding:.25rem 0;border-bottom:1px solid rgba(0,0,0,.06);font-size:.85rem}
         .pinned-item:last-child{border-bottom:none}
@@ -235,7 +239,7 @@
         }
 
         /* Theme picker popover */
-        #themePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:14px;padding:.8rem;box-shadow:0 4px 20px rgba(0,0,0,.22);z-index:300;display:none;flex-direction:column;gap:.65rem;width:192px}
+        #themePopover{position:fixed;top:58px;right:.75rem;background:var(--surface);border:1px solid var(--input-border);border-radius:14px;padding:.8rem;box-shadow:0 4px 20px rgba(0,0,0,.22);z-index:300;display:none;flex-direction:column;gap:.65rem;width:210px}
         #themePopover.open{display:flex}
         .tp-label{font-size:.72rem;font-weight:600;color:var(--meta);text-transform:uppercase;letter-spacing:.05em}
         .tp-modes{display:flex;gap:.4rem}
@@ -245,6 +249,13 @@
         .tp-swatch{width:30px;height:30px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:transform .15s,border-color .15s;flex-shrink:0}
         .tp-swatch:hover{transform:scale(1.12)}
         .tp-swatch.active{border-color:var(--recv-text)}
+        .tp-sizes{display:flex;gap:.4rem;align-items:flex-end}
+        .tp-size{flex:1;background:var(--input-bg);border:1px solid var(--input-border);border-radius:7px;padding:.25rem .2rem;cursor:pointer;color:var(--recv-text);font-family:inherit;transition:background .15s,color .15s,border-color .15s;text-align:center;line-height:1}
+        .tp-size:nth-child(1){font-size:.72rem}
+        .tp-size:nth-child(2){font-size:.88rem}
+        .tp-size:nth-child(3){font-size:1rem}
+        .tp-size:nth-child(4){font-size:1.15rem}
+        .tp-size.active{background:var(--header-from);color:#fff;border-color:var(--header-from)}
     </style>
 </head>
 <body>
@@ -399,6 +410,13 @@
             <button class="tp-swatch" data-pal="rose"   style="background:linear-gradient(135deg,#e11d48,#be185d)" title="Rose"></button>
             <button class="tp-swatch" data-pal="amber"  style="background:linear-gradient(135deg,#d97706,#b45309)" title="Amber"></button>
         </div>
+        <div class="tp-label">Text size</div>
+        <div class="tp-sizes">
+            <button class="tp-size" data-size="13">A</button>
+            <button class="tp-size" data-size="15">A</button>
+            <button class="tp-size" data-size="17">A</button>
+            <button class="tp-size" data-size="19">A</button>
+        </div>
     </div>
 
     <script>
@@ -450,6 +468,17 @@
             themePopover.classList.remove('open');
         }
     });
+
+    // ── Font size ──────────────────────────────────────────────────────
+    function applyFontSize(px) {
+        document.documentElement.style.fontSize = px + 'px';
+        localStorage.setItem('mbl2pc_fontsize', px);
+        document.querySelectorAll('.tp-size').forEach(b =>
+            b.classList.toggle('active', Number(b.dataset.size) === Number(px)));
+    }
+    applyFontSize(Number(localStorage.getItem('mbl2pc_fontsize') || 15));
+    document.querySelectorAll('.tp-size').forEach(b =>
+        b.addEventListener('click', () => applyFontSize(Number(b.dataset.size))));
 
     // ── Device name ────────────────────────────────────────────────────
     function detectDevice() {

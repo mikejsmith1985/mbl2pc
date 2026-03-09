@@ -341,6 +341,19 @@ async def send_message(request: Request, msg: str = Form(""), sender: str = Form
         item["expires_at"] = (datetime.now() + timedelta(hours=expires_hours)).isoformat(timespec="seconds")
     _supabase_insert(item)
     _notify_other_devices(user['sub'], sender, msg)
+
+    # Forward to Forge Terminal if configured so the agent can receive replies
+    if FORGE_INBOUND_URL and WEBHOOK_SECRET and msg.strip():
+        import httpx
+        try:
+            httpx.post(
+                f"{FORGE_INBOUND_URL}/api/notify/inbound",
+                json={"text": msg, "sender": sender, "token": WEBHOOK_SECRET},
+                timeout=4,
+            )
+        except Exception as e:
+            print(f"[WARN] Could not forward message to Forge: {e}", file=sys.stderr)
+
     return {"status": "Message received"}
 
 
@@ -626,6 +639,11 @@ def _notify_other_devices(user_id: str, sender: str, text_preview: str):
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 WEBHOOK_USER_ID = os.environ.get("WEBHOOK_USER_ID", "")  # Google 'sub' of the target user
 
+# When set, every message the user sends via the UI is forwarded to this URL so
+# Forge Terminal can receive replies without polling MBL2PC.
+# Example: FORGE_INBOUND_URL=http://192.168.1.100:8080
+FORGE_INBOUND_URL = os.environ.get("FORGE_INBOUND_URL", "").rstrip("/")
+
 
 class WebhookPayload(BaseModel):
     text: str
@@ -674,3 +692,39 @@ async def webhook_notify(payload: WebhookPayload):
     _notify_other_devices(WEBHOOK_USER_ID, payload.sender, text)
 
     return {"status": "delivered"}
+
+
+# ── Polling fallback: Forge Terminal reads recent user messages ──────────────
+# Forge calls this when FORGE_INBOUND_URL is not set (or as a fallback).
+# Protected by the same WEBHOOK_SECRET so no OAuth is needed.
+
+@app.get("/messages/recent")
+def messages_recent(token: str = "", since: str = ""):
+    """
+    Return messages sent by the user (not by Forge Terminal) since `since` (ISO timestamp).
+    Requires `token` query param equal to WEBHOOK_SECRET.
+    Used by Forge Terminal to poll for replies without needing OAuth.
+    """
+    if not WEBHOOK_SECRET or token != WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized.")
+    if not WEBHOOK_USER_ID:
+        raise HTTPException(status_code=503, detail="WEBHOOK_USER_ID not configured.")
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase not configured.")
+
+    since_ts = since or "1970-01-01T00:00:00"
+    try:
+        resp = (
+            supabase.table("messages")
+            .select("id,sender,text,timestamp")
+            .eq("user_id", WEBHOOK_USER_ID)
+            .neq("sender", "Forge Terminal")
+            .gt("timestamp", since_ts)
+            .order("timestamp", desc=False)
+            .limit(20)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+    return {"messages": resp.data or []}
