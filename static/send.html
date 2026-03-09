@@ -348,7 +348,7 @@
             <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
                 <span id="clipTimestamp"></span>
                 <div class="clip-btns">
-                    <button class="clip-btn clip-btn-copy" id="clipCopyBtn">Copy</button>
+                    <button class="clip-btn clip-btn-copy" id="clipCopyBtn">Copy &amp; Send</button>
                     <button class="clip-btn clip-btn-push" id="clipPushBtn">📋 Push My Clipboard</button>
                 </div>
             </div>
@@ -1448,10 +1448,9 @@
         if (!currentClipContent) { toast('Nothing to copy', 'error'); return; }
         try {
             await navigator.clipboard.writeText(currentClipContent);
-            toast('Copied to clipboard!', 'success');
-        } catch (_) {
-            toast('Could not copy — check browser permissions', 'error');
-        }
+        } catch (_) {}
+        // Also send as a chat message so it appears in history
+        await sendText(currentClipContent);
     }
 
     clipPushBtn.addEventListener('click', pushClipboard);
