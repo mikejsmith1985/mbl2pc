@@ -303,18 +303,23 @@ def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase is not configured.")
     try:
-        supabase.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+        resp = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
             path,
             contents,
-            {"content-type": content_type, "upsert": "false"}
+            {"content-type": content_type, "content_type": content_type, "upsert": False}
         )
+        # supabase-py v2 raises StorageException on error; check for error in response too
+        if hasattr(resp, 'error') and resp.error:
+            raise Exception(str(resp.error))
         url_resp = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(path)
         # supabase-py v2+ returns PublicUrlResponse(publicUrl=...) instead of a plain string
         if hasattr(url_resp, 'public_url'):
             return url_resp.public_url
         return url_resp
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[ERROR] Supabase storage upload error: {e}", file=sys.stderr)
+        print(f"[ERROR] Supabase storage upload error (bucket={SUPABASE_STORAGE_BUCKET}, path={path}): {e}", file=sys.stderr)
         raise HTTPException(status_code=500, detail=f"File upload error: {e}")
 
 

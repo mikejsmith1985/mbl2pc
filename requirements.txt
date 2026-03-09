@@ -5,7 +5,7 @@ starlette
 python-multipart
 authlib
 httpx
-supabase
+supabase>=2.0.0,<3.0.0
 itsdangerous
 pytest
 pywebpush

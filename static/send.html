@@ -1065,9 +1065,12 @@
             const res = await fetch(API+endpoint, {method:'POST', body:fd});
             let d = {};
             try { d = await res.json(); } catch(_) {}
-            if (!res.ok) { toast(d.detail||'Upload failed','error'); }
-            else { toast(isImage ? 'Image sent!' : 'File sent!'); }
-        } catch(_) { toast('Upload failed','error'); }
+            if (!res.ok) {
+                const msg = d.detail || `Upload failed (HTTP ${res.status})`;
+                console.error('[mbl2pc] upload error:', res.status, d);
+                toast(msg, 'error');
+            } else { toast(isImage ? 'Image sent!' : 'File sent!'); }
+        } catch(err) { console.error('[mbl2pc] upload exception:', err); toast('Upload failed — check console', 'error'); }
     }
 
     // ── Share target: handle URL params from OS share sheet ────────────
