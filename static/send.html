@@ -1112,13 +1112,13 @@
             const keyRes = await fetch(`${API}/push/vapid-public-key`);
             if (!keyRes.ok) return;
             const { public_key } = await keyRes.json();
+            // Always force a fresh subscription so stale/wrong-scope subs are replaced
             let sub = await reg.pushManager.getSubscription();
-            if (!sub) {
-                sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(public_key)
-                });
-            }
+            if (sub) await sub.unsubscribe();
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(public_key)
+            });
             await fetch(`${API}/push/subscribe`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1253,7 +1253,18 @@
 
     // ── PWA service worker ─────────────────────────────────────────────
     if ('serviceWorker' in navigator) {
+        // Unregister any old SW at wrong scope (e.g. /static/ from before the fix)
+        navigator.serviceWorker.getRegistrations().then(regs => {
+            for (const reg of regs) {
+                if (reg.scope.includes('/static')) reg.unregister();
+            }
+        });
         navigator.serviceWorker.register('/sw.js').catch(() => {});
+        // Auto-resubscribe on load if permission already granted (catches devices
+        // that granted permission but never got a subscription sent to the server)
+        if (Notification.permission === 'granted' && localStorage.getItem('mbl2pc_notif') !== '0') {
+            navigator.serviceWorker.ready.then(() => tryPushSubscribe());
+        }
     }
 
     // ── Init ───────────────────────────────────────────────────────────
