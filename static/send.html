@@ -1063,21 +1063,48 @@
 
     // ── Send ───────────────────────────────────────────────────────────
     document.getElementById('sendBtn').addEventListener('click', sendMessage);
+    let _sending = false;
     async function sendMessage() {
+        if (_sending) return;
         const text = msgInput.value.trim();
         if (!text && !attachedFiles.length) return;
-        if (attachedFiles.length) {
-            // Send each file as its own message; caption only on the first
-            for (let i = 0; i < attachedFiles.length; i++) {
-                await sendAttachment(attachedFiles[i], i === 0 ? text : '');
-            }
-        } else {
-            await sendText(text);
-        }
+        _sending = true;
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.disabled = true;
+
+        // Optimistic UI: clear input and show bubble immediately so the
+        // app feels instant — server confirmation happens in the background.
         msgInput.value = ''; msgInput.style.height = 'auto';
-        clearAttach();
-        lastMsgCount = 0;
-        await fetchMessages();
+        if (text && !attachedFiles.length) appendOptimisticBubble(text);
+
+        try {
+            if (attachedFiles.length) {
+                // Send each file as its own message; caption only on the first
+                for (let i = 0; i < attachedFiles.length; i++) {
+                    await sendAttachment(attachedFiles[i], i === 0 ? text : '');
+                }
+            } else {
+                await sendText(text);
+            }
+            clearAttach();
+            lastMsgCount = 0;
+            await fetchMessages();
+        } finally {
+            _sending = false;
+            sendBtn.disabled = false;
+        }
+    }
+
+    function appendOptimisticBubble(text) {
+        const chat = document.getElementById('chat');
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        const div = document.createElement('div');
+        div.className = 'bubble sent optimistic';
+        div.innerHTML = `<span class="sender">${esc(deviceName)}</span>` +
+                        `<span class="text">${esc(text)}</span>` +
+                        `<span class="timestamp">${now}</span>`;
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
     }
     async function sendText(text) {
         try {
@@ -1477,6 +1504,7 @@
 
         ws.onopen = () => {
             wsBackoff = 1000; // reset on success
+            fetchMessages(searchInput.value.trim(), activeDateFilter);
         };
 
         ws.onmessage = (e) => {

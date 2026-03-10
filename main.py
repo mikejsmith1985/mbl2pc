@@ -406,15 +406,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks, msg:
 
     # Forward to Forge Terminal if configured so the agent can receive replies
     if FORGE_INBOUND_URL and WEBHOOK_SECRET and msg.strip():
-        import httpx
-        try:
-            httpx.post(
-                f"{FORGE_INBOUND_URL}/api/notify/inbound",
-                json={"text": msg, "sender": sender, "token": WEBHOOK_SECRET},
-                timeout=4,
-            )
-        except Exception as e:
-            print(f"[WARN] Could not forward message to Forge: {e}", file=sys.stderr)
+        background_tasks.add_task(_forward_to_forge, msg, sender)
 
     await manager.broadcast(user['sub'], {"type": "new_message"})
     return {"status": "Message received"}
@@ -804,6 +796,20 @@ def _notify_other_devices(user_id: str, sender: str, text_preview: str):
             _send_push_notification(sub, f"mbl2pc — {sender}", preview)
     except Exception as e:
         print(f"[PUSH] _notify_other_devices error: {e}", file=sys.stderr)
+
+
+
+def _forward_to_forge(msg: str, sender: str):
+    """Send a copy of the user's message to Forge Terminal (background task)."""
+    try:
+        import httpx
+        httpx.post(
+            f"{FORGE_INBOUND_URL}/api/notify/inbound",
+            json={"text": msg, "sender": sender, "token": WEBHOOK_SECRET},
+            timeout=4,
+        )
+    except Exception as e:
+        print(f"[WARN] Could not forward message to Forge: {e}", file=sys.stderr)
 
 
 # ── Server-to-server Webhook (no OAuth required) ────────────────────────────────
