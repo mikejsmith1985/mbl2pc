@@ -12,6 +12,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
     <style>
         :root {
             --bg:#f0f2f5; --surface:#fff; --header-from:#4f46e5; --header-to:#7c3aed;
@@ -117,7 +119,33 @@
         .bubble.received{color:var(--recv-text);align-self:flex-start;border-bottom-left-radius:4px;border:2px solid}
         .bubble.is-starred{box-shadow:0 0 0 2px #f59e0b,var(--shadow)}
         .bubble .sender{font-size:.7rem;font-weight:600;opacity:.85;margin-bottom:2px}
-        .bubble .text{font-size:.95rem;line-height:1.45;white-space:pre-wrap;word-break:break-word;tab-size:4}
+        .bubble .text{font-size:.95rem;line-height:1.45;word-break:break-word}
+        /* Markdown body inside bubbles */
+        .bubble .md-body > *:first-child{margin-top:0}
+        .bubble .md-body > *:last-child{margin-bottom:0}
+        .bubble .md-body p{margin:.3em 0}
+        .bubble .md-body h1,.bubble .md-body h2,.bubble .md-body h3,.bubble .md-body h4{font-weight:600;margin:.55em 0 .2em;line-height:1.25}
+        .bubble .md-body h1{font-size:1.15em}.bubble .md-body h2{font-size:1.08em}.bubble .md-body h3,.bubble .md-body h4{font-size:1em}
+        .bubble .md-body ul,.bubble .md-body ol{margin:.3em 0;padding-left:1.4em}
+        .bubble .md-body li{margin:.12em 0}
+        .bubble .md-body code{font-family:'Courier New',monospace;font-size:.87em;background:rgba(0,0,0,.12);border-radius:4px;padding:.1em .35em;white-space:pre-wrap;word-break:break-all}
+        .bubble.sent .md-body code{background:rgba(255,255,255,.2)}
+        .bubble .md-body pre{background:rgba(0,0,0,.1);border-radius:8px;padding:.55em .8em;overflow-x:auto;margin:.35em 0}
+        .bubble.sent .md-body pre{background:rgba(0,0,0,.25)}
+        .bubble .md-body pre code{background:none;padding:0;white-space:pre;word-break:normal;display:block}
+        .bubble .md-body blockquote{margin:.3em 0;padding:.25em .7em;border-left:3px solid currentColor;opacity:.8}
+        .bubble .md-body hr{border:none;border-top:1px solid currentColor;opacity:.25;margin:.5em 0}
+        .bubble .md-body a{color:inherit;text-decoration:underline;opacity:.85}
+        .bubble .md-body del{opacity:.6}
+        .bubble .md-body strong{font-weight:600}
+        /* Tables */
+        .bubble .md-body table{border-collapse:collapse;font-size:.87em;margin:.4em 0;display:block;overflow-x:auto;max-width:100%}
+        .bubble .md-body th,.bubble .md-body td{border:1px solid rgba(0,0,0,.22);padding:.3em .7em;text-align:left;white-space:nowrap;vertical-align:top}
+        .bubble.sent .md-body th,.bubble.sent .md-body td{border-color:rgba(255,255,255,.3)}
+        .bubble .md-body th{background:rgba(0,0,0,.1);font-weight:600}
+        .bubble.sent .md-body th{background:rgba(255,255,255,.18)}
+        .bubble .md-body tr:nth-child(even) td{background:rgba(0,0,0,.04)}
+        .bubble.sent .md-body tr:nth-child(even) td{background:rgba(255,255,255,.08)}
         .bubble .timestamp{font-size:.65rem;opacity:.75;align-self:flex-end;margin-top:3px}
         .bubble img{max-width:220px;max-height:220px;border-radius:10px;margin-top:4px;display:block;object-fit:cover}
         .bubble .starred-badge{position:absolute;top:-6px;right:-4px;font-size:.75rem}
@@ -618,6 +646,18 @@
 
     // ── Helpers ────────────────────────────────────────────────────────
     function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    // Markdown renderer – uses marked + DOMPurify (both loaded from CDN)
+    (function() {
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({ breaks: true, gfm: true });
+        }
+    })();
+    function renderMd(text) {
+        if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') return esc(text);
+        const html = marked.parse(String(text || ''));
+        return DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] });
+    }
     const IMG_EXT = ['.jpg','.jpeg','.png','.gif','.webp'];
     function fext(n) { return (n||'').split('.').pop().toLowerCase(); }
     function isImg(n) { return IMG_EXT.includes('.'+fext(n)); }
@@ -733,7 +773,7 @@
                     inner += `<a class="file-card" href="${esc(m.file_url)}" target="_blank" rel="noopener"><span class="file-icon">${ficon(fname)}</span><span><span class="fname">${esc(fname)}</span><br><span class="fhint">Tap to download</span></span></a>`;
                 }
             }
-            if (m.text) inner += `<span class="text">${esc(m.text)}</span>`;
+            if (m.text) inner += `<div class="text md-body">${renderMd(m.text)}</div>`;
             inner += `<span class="timestamp">${esc((m.timestamp||'').replace('T',' '))}</span>`;
             // Action buttons
             inner += `<div class="bubble-actions">`;
