@@ -754,7 +754,12 @@
 
             chat.appendChild(div);
         });
-        setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
+        // Scroll to bottom after layout; re-scroll once any images finish loading
+        const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
+        requestAnimationFrame(() => requestAnimationFrame(scrollBottom));
+        chat.querySelectorAll('img').forEach(img => {
+            if (!img.complete) img.addEventListener('load', scrollBottom, { once: true });
+        });
     }
 
     async function toggleStar(id) {
