@@ -686,7 +686,6 @@
     // ── Pinned panel ───────────────────────────────────────────────────
     let allMessages = [];
     let partialLoad = false;
-    let chatInitialized = false;
     function renderPinned() {
         const pinned = allMessages.filter(m => m.starred);
         const panel = document.getElementById('pinnedPanel');
@@ -846,26 +845,12 @@
             const d = await res.json();
             partialLoad = !!d.has_more;
             document.getElementById('loadMoreBtn').style.display = partialLoad ? 'block' : 'none';
-            const chatEl = document.getElementById('chat');
             document.getElementById('spinner').style.display = 'none';
-            if (!chatInitialized) {
-                // On first load: render hidden, jump to bottom instantly, then reveal
-                chatEl.style.visibility = 'hidden';
-                chatEl.style.display = 'flex';
-                renderMessages(d.messages || [], false);
-                chatEl.scrollTop = chatEl.scrollHeight;
-                chatEl.style.visibility = '';
-                chatInitialized = true;
-            } else {
-                chatEl.style.display = 'flex';
-                renderMessages(d.messages || [], autoScroll);
-            }
+            document.getElementById('chat').style.display = 'flex';
+            renderMessages(d.messages || [], autoScroll);
         } catch (_) {
             document.getElementById('spinner').style.display = 'none';
-            const chatEl = document.getElementById('chat');
-            chatEl.style.display = 'flex';
-            chatEl.style.visibility = '';
-            chatInitialized = true;
+            document.getElementById('chat').style.display = 'flex';
         }
     }
 
