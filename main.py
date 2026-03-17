@@ -519,7 +519,7 @@ def storage_test(request: Request):
 
 # Retrieve messages for the current user from Supabase
 @app.get("/messages")
-def get_messages(request: Request, q: str = "", date: str = ""):
+def get_messages(request: Request, q: str = "", date: str = "", last: int = 0):
     user = get_current_user(request)
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase is not configured.")
@@ -528,19 +528,17 @@ def get_messages(request: Request, q: str = "", date: str = ""):
         cols = "id,sender,text,image_url,file_url,file_name,timestamp"
         if include_optional:
             cols += ",starred,expires_at"
-        query = (
-            supabase.table("messages")
-            .select(cols)
-            .eq("user_id", user['sub'])
-            .order("timestamp", desc=False)
-        )
+        base = supabase.table("messages").select(cols).eq("user_id", user['sub'])
         if q:
-            query = query.ilike("text", f"%{q}%")
+            query = base.order("timestamp", desc=False).ilike("text", f"%{q}%")
         elif date:
             # Filter to a specific calendar date (YYYY-MM-DD)
-            query = query.gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
+            query = base.order("timestamp", desc=False).gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
+        elif last > 0:
+            # Fetch the N most-recent messages (sort DESC, limit, then reverse)
+            query = base.order("timestamp", desc=True).limit(last)
         else:
-            query = query.limit(100)
+            query = base.order("timestamp", desc=False).limit(100)
         return query.execute()
 
     try:
@@ -574,7 +572,11 @@ def get_messages(request: Request, q: str = "", date: str = ""):
             'timestamp': m.get('timestamp', ''),
             'starred': bool(m.get('starred', False)),
         })
-    return {"messages": messages}
+    # Results were fetched DESC when using `last`; restore chronological order
+    if last > 0:
+        messages.reverse()
+    has_more = last > 0 and len(messages) >= last
+    return {"messages": messages, "has_more": has_more}
 
 
 # Toggle star on a message

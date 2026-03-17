@@ -109,8 +109,10 @@
         #datePickerClear:hover{border-color:#ef4444;color:#ef4444}
 
         /* Chat */
-        #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem;scroll-behavior:smooth}
+        #chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.4rem}
         #chat:empty::after{content:'No messages yet. Say hello! 👋';display:block;text-align:center;color:var(--meta);font-size:.9rem;margin-top:2rem}
+        #loadMoreBtn{display:none;width:100%;background:var(--surface);border:none;border-bottom:1px solid var(--input-border);color:var(--header-from);font-size:.8rem;padding:.45rem 1rem;cursor:pointer;font-family:inherit;text-align:center;transition:background .15s;flex-shrink:0}
+        #loadMoreBtn:hover{background:var(--input-bg)}
 
         /* Bubbles */
         .bubble{display:flex;flex-direction:column;max-width:75%;padding:.55rem .85rem;border-radius:var(--radius);box-shadow:var(--shadow);animation:pop-in .2s ease-out;word-break:break-word;position:relative}
@@ -130,7 +132,7 @@
         .bubble .md-body li{margin:.12em 0}
         .bubble .md-body code{font-family:'Courier New',monospace;font-size:.87em;background:rgba(0,0,0,.12);border-radius:4px;padding:.1em .35em;white-space:pre-wrap;word-break:break-all}
         .bubble.sent .md-body code{background:rgba(255,255,255,.2)}
-        .bubble .md-body pre{background:rgba(0,0,0,.1);border-radius:8px;padding:.55em .8em;overflow-x:auto;margin:.35em 0}
+        .bubble .md-body pre{background:rgba(0,0,0,.1);border-radius:8px;padding:.55em .8em;overflow-x:auto;overflow-y:auto;max-height:300px;margin:.35em 0}
         .bubble.sent .md-body pre{background:rgba(0,0,0,.25)}
         .bubble .md-body pre code{background:none;padding:0;white-space:pre;word-break:normal;display:block}
         .bubble .md-body blockquote{margin:.3em 0;padding:.25em .7em;border-left:3px solid currentColor;opacity:.8}
@@ -388,6 +390,7 @@
     </div>
 
     <div id="spinner"><div class="spin"></div>Loading…</div>
+    <button id="loadMoreBtn">⬆ Load earlier messages</button>
     <div id="chat"></div>
 
     <div id="snippetsPanel" class="collapsed">
@@ -682,6 +685,8 @@
 
     // ── Pinned panel ───────────────────────────────────────────────────
     let allMessages = [];
+    let partialLoad = false;
+    let chatInitialized = false;
     function renderPinned() {
         const pinned = allMessages.filter(m => m.starred);
         const panel = document.getElementById('pinnedPanel');
@@ -727,7 +732,7 @@
 
     function dateOf(ts) { return ts ? ts.slice(0, 10) : ''; }
 
-    function renderMessages(messages) {
+    function renderMessages(messages, autoScroll = true) {
         allMessages = messages;
         renderPinned();
         const chat = document.getElementById('chat');
@@ -795,11 +800,13 @@
             chat.appendChild(div);
         });
         // Scroll to bottom after layout; re-scroll once any images finish loading
-        const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
-        requestAnimationFrame(() => requestAnimationFrame(scrollBottom));
-        chat.querySelectorAll('img').forEach(img => {
-            if (!img.complete) img.addEventListener('load', scrollBottom, { once: true });
-        });
+        if (autoScroll) {
+            const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
+            requestAnimationFrame(() => requestAnimationFrame(scrollBottom));
+            chat.querySelectorAll('img').forEach(img => {
+                if (!img.complete) img.addEventListener('load', scrollBottom, { once: true });
+            });
+        }
     }
 
     async function toggleStar(id) {
@@ -826,22 +833,39 @@
         } catch (_) { toast('Error', 'error'); }
     }
 
-    async function fetchMessages(q = '', date = '') {
+    async function fetchMessages(q = '', date = '', last = 0, autoScroll = true) {
         try {
             let url = `${API}/messages`;
             const params = new URLSearchParams();
             if (q) params.set('q', q);
             if (date) params.set('date', date);
+            if (last > 0) params.set('last', String(last));
             if ([...params].length) url += '?' + params.toString();
             const res = await fetch(url);
             if (res.status === 401) { window.location.href = '/login'; return; }
             const d = await res.json();
+            partialLoad = !!d.has_more;
+            document.getElementById('loadMoreBtn').style.display = partialLoad ? 'block' : 'none';
+            const chatEl = document.getElementById('chat');
             document.getElementById('spinner').style.display = 'none';
-            document.getElementById('chat').style.display = 'flex';
-            renderMessages(d.messages || []);
+            if (!chatInitialized) {
+                // On first load: render hidden, jump to bottom instantly, then reveal
+                chatEl.style.visibility = 'hidden';
+                chatEl.style.display = 'flex';
+                renderMessages(d.messages || [], false);
+                chatEl.scrollTop = chatEl.scrollHeight;
+                chatEl.style.visibility = '';
+                chatInitialized = true;
+            } else {
+                chatEl.style.display = 'flex';
+                renderMessages(d.messages || [], autoScroll);
+            }
         } catch (_) {
             document.getElementById('spinner').style.display = 'none';
-            document.getElementById('chat').style.display = 'flex';
+            const chatEl = document.getElementById('chat');
+            chatEl.style.display = 'flex';
+            chatEl.style.visibility = '';
+            chatInitialized = true;
         }
     }
 
@@ -1579,12 +1603,24 @@
     }, 25000);
 
     // ── Init ───────────────────────────────────────────────────────────
+    document.getElementById('loadMoreBtn').onclick = async () => {
+        const firstBubble = document.querySelector('#chat .bubble');
+        const firstId = firstBubble?.dataset.id;
+        lastMsgCount = 0;
+        document.getElementById('loadMoreBtn').style.display = 'none';
+        await fetchMessages('', '', 0, false);
+        // Scroll to restore position: show the message that was previously first
+        if (firstId) {
+            const el = document.querySelector(`#chat [data-id="${CSS.escape(firstId)}"]`);
+            if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
+        }
+    };
     document.getElementById('spinner').style.display = 'flex';
     document.getElementById('chat').style.display = 'none';
     loadMe();
     loadVersion();
     loadSnippets();
-    fetchMessages();
+    fetchMessages('', '', 5);
     fetchClipboard();
     handleShareTarget();
     connectWS();
