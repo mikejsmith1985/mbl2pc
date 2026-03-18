@@ -528,17 +528,30 @@ def get_messages(request: Request, q: str = "", date: str = "", last: int = 0):
         cols = "id,sender,text,image_url,file_url,file_name,timestamp"
         if include_optional:
             cols += ",starred,expires_at"
-        base = supabase.table("messages").select(cols).eq("user_id", user['sub'])
+        # `last` path: fetch N most-recent rows (separate from default logic)
+        if last > 0:
+            return (
+                supabase.table("messages")
+                .select(cols)
+                .eq("user_id", user['sub'])
+                .order("timestamp", desc=True)
+                .limit(last)
+                .execute()
+            )
+        # Original query logic — untouched
+        query = (
+            supabase.table("messages")
+            .select(cols)
+            .eq("user_id", user['sub'])
+            .order("timestamp", desc=False)
+        )
         if q:
-            query = base.order("timestamp", desc=False).ilike("text", f"%{q}%")
+            query = query.ilike("text", f"%{q}%")
         elif date:
             # Filter to a specific calendar date (YYYY-MM-DD)
-            query = base.order("timestamp", desc=False).gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
-        elif last > 0:
-            # Fetch the N most-recent messages (sort DESC, limit, then reverse)
-            query = base.order("timestamp", desc=True).limit(last)
+            query = query.gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
         else:
-            query = base.order("timestamp", desc=False).limit(100)
+            query = query.limit(100)
         return query.execute()
 
     try:

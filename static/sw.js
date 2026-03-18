@@ -1,5 +1,5 @@
 // Minimal service worker — required for PWA installability and share target
-const CACHE = 'mbl2pc-v3';
+const CACHE = 'mbl2pc-v4';
 
 self.addEventListener('install', e => {
     self.skipWaiting();

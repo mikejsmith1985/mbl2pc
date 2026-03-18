@@ -842,6 +842,12 @@
             if ([...params].length) url += '?' + params.toString();
             const res = await fetch(url);
             if (res.status === 401) { window.location.href = '/login'; return; }
+            if (!res.ok) {
+                console.error('fetchMessages HTTP error', res.status);
+                document.getElementById('spinner').style.display = 'none';
+                document.getElementById('chat').style.display = 'flex';
+                return;
+            }
             const d = await res.json();
             partialLoad = !!d.has_more;
             document.getElementById('loadMoreBtn').style.display = partialLoad ? 'block' : 'none';
