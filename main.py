@@ -538,12 +538,13 @@ def get_messages(request: Request, q: str = "", date: str = "", last: int = 0):
                 .limit(last)
                 .execute()
             )
-        # Original query logic — untouched
+        # Fetch newest 100 DESC then reverse — so users with >100 messages
+        # always see the most recent ones, not the oldest ones.
         query = (
             supabase.table("messages")
             .select(cols)
             .eq("user_id", user['sub'])
-            .order("timestamp", desc=False)
+            .order("timestamp", desc=True)
         )
         if q:
             query = query.ilike("text", f"%{q}%")
@@ -552,7 +553,9 @@ def get_messages(request: Request, q: str = "", date: str = "", last: int = 0):
             query = query.gte("timestamp", f"{date}T00:00:00").lt("timestamp", f"{date}T23:59:59")
         else:
             query = query.limit(100)
-        return query.execute()
+        result = query.execute()
+        result.data.reverse()
+        return result
 
     try:
         resp = _run_query(include_optional=True)
