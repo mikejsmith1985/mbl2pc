@@ -31,6 +31,7 @@
             --pin-bg:#1c1a05; --pin-border:#f59e0b;
             --snip-bg:#0f172a; --snip-border:#334155;
         }
+        html{height:100%}
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
         body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--recv-text);height:100dvh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:env(safe-area-inset-bottom)}
 
@@ -390,7 +391,6 @@
     </div>
 
     <div id="spinner"><div class="spin"></div>Loading…</div>
-    <button id="loadMoreBtn">⬆ Load earlier messages</button>
     <div id="chat"></div>
 
     <div id="snippetsPanel" class="collapsed">
@@ -801,7 +801,11 @@
         // Scroll to bottom after layout; re-scroll once any images finish loading
         if (autoScroll) {
             const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
-            requestAnimationFrame(() => requestAnimationFrame(scrollBottom));
+            // Retry scroll at multiple points to handle async layout updates
+            // (display:flex recalc, image loads, font rendering, etc.)
+            requestAnimationFrame(() => { requestAnimationFrame(scrollBottom); });
+            setTimeout(scrollBottom, 50);
+            setTimeout(scrollBottom, 200);
             chat.querySelectorAll('img').forEach(img => {
                 if (!img.complete) img.addEventListener('load', scrollBottom, { once: true });
             });
@@ -845,18 +849,14 @@
             if (!res.ok) {
                 console.error('fetchMessages HTTP error', res.status);
                 document.getElementById('spinner').style.display = 'none';
-                document.getElementById('chat').style.display = 'flex';
                 return;
             }
             const d = await res.json();
             partialLoad = !!d.has_more;
-            document.getElementById('loadMoreBtn').style.display = partialLoad ? 'block' : 'none';
             document.getElementById('spinner').style.display = 'none';
-            document.getElementById('chat').style.display = 'flex';
             renderMessages(d.messages || [], autoScroll);
         } catch (_) {
             document.getElementById('spinner').style.display = 'none';
-            document.getElementById('chat').style.display = 'flex';
         }
     }
 
@@ -1595,7 +1595,6 @@
 
     // ── Init ───────────────────────────────────────────────────────────
     document.getElementById('spinner').style.display = 'flex';
-    document.getElementById('chat').style.display = 'none';
     loadMe();
     loadVersion();
     loadSnippets();
