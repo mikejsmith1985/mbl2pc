@@ -1594,24 +1594,12 @@
     }, 25000);
 
     // ── Init ───────────────────────────────────────────────────────────
-    document.getElementById('loadMoreBtn').onclick = async () => {
-        const firstBubble = document.querySelector('#chat .bubble');
-        const firstId = firstBubble?.dataset.id;
-        lastMsgCount = 0;
-        document.getElementById('loadMoreBtn').style.display = 'none';
-        await fetchMessages('', '', 0, false);
-        // Scroll to restore position: show the message that was previously first
-        if (firstId) {
-            const el = document.querySelector(`#chat [data-id="${CSS.escape(firstId)}"]`);
-            if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
-        }
-    };
     document.getElementById('spinner').style.display = 'flex';
     document.getElementById('chat').style.display = 'none';
     loadMe();
     loadVersion();
     loadSnippets();
-    fetchMessages('', '', 5);
+    fetchMessages();
     fetchClipboard();
     handleShareTarget();
     connectWS();
