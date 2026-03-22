@@ -1609,6 +1609,22 @@
             fetchClipboard();
         }
     }, 4000);
+
+    // Refresh when the tab becomes visible again (handles background/sleep WS drops)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            // WS silently died in background — force-close it, reset backoff, reconnect
+            if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+            ws = null;
+            wsBackoff = 1000;
+            connectWS();
+        } else {
+            // WS appears live — still pull latest messages immediately
+            fetchMessages(searchInput.value.trim(), activeDateFilter);
+            fetchClipboard();
+        }
+    });
     </script>
 </body>
 </html>
