@@ -1571,6 +1571,7 @@
             try {
                 const data = JSON.parse(e.data);
                 if (data.type === 'new_message') {
+                    lastMsgCount = 0; // force re-render on every notification
                     fetchMessages(searchInput.value.trim(), activeDateFilter);
                 } else if (data.type === 'clipboard_update') {
                     fetchClipboard();
@@ -1602,13 +1603,11 @@
     fetchClipboard();
     handleShareTarget();
     connectWS();
-    // Fallback poll — only fires when WebSocket is not connected
+    // Poll every 5s — runs unconditionally so messages always appear even if WS is silent
     setInterval(() => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            fetchMessages(searchInput.value.trim(), activeDateFilter);
-            fetchClipboard();
-        }
-    }, 4000);
+        fetchMessages(searchInput.value.trim(), activeDateFilter);
+        fetchClipboard();
+    }, 5000);
 
     // Refresh when the tab becomes visible again (handles background/sleep WS drops)
     document.addEventListener('visibilitychange', () => {
