@@ -152,13 +152,13 @@ async def sse_events(request: Request):
     async def generator():
         try:
             while True:
-                if await request.is_disconnected():
-                    break
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=25.0)
                     yield f"data: {data}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
         finally:
             sse_manager.unsubscribe(user_id, q)
 

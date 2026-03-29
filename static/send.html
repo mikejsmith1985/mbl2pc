@@ -678,7 +678,7 @@
     });
 
     // ── Messages ───────────────────────────────────────────────────────
-    let lastMsgId = null;
+    let lastMsgFingerprint = null;
     let activeDateFilter = '';
 
     function fmtDateLabel(ts) {
@@ -699,9 +699,18 @@
         allMessages = messages;
         renderPinned();
         const chat = document.getElementById('chat');
-        const currentLastId = messages.length ? messages[messages.length - 1].id : null;
-        if (currentLastId !== null && currentLastId === lastMsgId) return;
-        lastMsgId = currentLastId;
+        // Fingerprint: count + first ID + last ID catches all changes:
+        // new messages (last ID changes), deletions (count changes), and the
+        // 100-message cap case where the oldest drops off (first ID changes).
+        const n = messages.length;
+        const fingerprint = n === 0 ? 'empty'
+            : `${n}:${messages[0].id}:${messages[n - 1].id}`;
+        if (fingerprint === lastMsgFingerprint) return;
+        // On first render (chat was empty), always scroll to bottom.
+        // Otherwise only scroll if the user was already near the bottom.
+        const isFirstRender = lastMsgFingerprint === null;
+        const wasAtBottom = isFirstRender || (chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80);
+        lastMsgFingerprint = fingerprint;
         chat.innerHTML = '';
         let lastDate = '';
         messages.forEach(m => {
@@ -763,11 +772,10 @@
 
             chat.appendChild(div);
         });
-        // Scroll to bottom after layout; re-scroll once any images finish loading
-        if (autoScroll) {
+        // Scroll to bottom: always if explicitly requested (e.g. user sent a message),
+        // or if the user was already at the bottom (so new messages stay in view).
+        if (autoScroll && wasAtBottom) {
             const scrollBottom = () => { chat.scrollTop = chat.scrollHeight; };
-            // Retry scroll at multiple points to handle async layout updates
-            // (display:flex recalc, image loads, font rendering, etc.)
             requestAnimationFrame(() => { requestAnimationFrame(scrollBottom); });
             setTimeout(scrollBottom, 50);
             setTimeout(scrollBottom, 200);
@@ -783,7 +791,7 @@
             if (!res.ok) { toast('Failed to pin', 'error'); return; }
             const d = await res.json();
             toast(d.starred ? 'Pinned ⭐' : 'Unpinned');
-            lastMsgId = null; // force re-render
+            lastMsgFingerprint = null; // force re-render
             await fetchMessages();
         } catch (_) { toast('Error', 'error'); }
     }
@@ -796,7 +804,7 @@
             el.style.animation = 'none';
             el.style.transition = 'opacity .2s,transform .2s';
             el.style.opacity = '0'; el.style.transform = 'scale(.9)';
-            setTimeout(() => { el.remove(); lastMsgId = null; renderPinned(); }, 220);
+            setTimeout(() => { el.remove(); lastMsgFingerprint = null; renderPinned(); }, 220);
             toast('Deleted');
         } catch (_) { toast('Error', 'error'); }
     }
@@ -891,7 +899,7 @@
 
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
-        lastMsgId = null;
+        lastMsgFingerprint = null;
         datePopover.classList.remove('open');
         document.removeEventListener('click', closePopoverOutside);
         fetchMessages('', dateStr);
@@ -903,7 +911,7 @@
         calendarBtn.classList.remove('active');
         datePopover.classList.remove('open');
         document.removeEventListener('click', closePopoverOutside);
-        lastMsgId = null;
+        lastMsgFingerprint = null;
         fetchMessages();
     }
 
@@ -936,11 +944,11 @@
         // Clear date filter when searching
         if (q) { activeDateFilter = ''; document.getElementById('calendarBtn').classList.remove('active'); }
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => { lastMsgId = null; fetchMessages(q); }, 350);
+        searchTimer = setTimeout(() => { lastMsgFingerprint = null; fetchMessages(q); }, 350);
     });
     clearSearch.addEventListener('click', () => {
         searchInput.value = ''; clearSearch.style.display = 'none';
-        lastMsgId = null; fetchMessages();
+        lastMsgFingerprint = null; fetchMessages();
     });
 
     // ── Snippets ───────────────────────────────────────────────────────
@@ -1112,7 +1120,7 @@
                 await sendText(text);
             }
             clearAttach();
-            lastMsgId = null;
+            lastMsgFingerprint = null;
             await fetchMessages();
         } finally {
             _sending = false;
@@ -1315,7 +1323,7 @@
             try {
                 const data = JSON.parse(e.data);
                 if (data.type === 'new_message') {
-                    lastMsgId = null; // force re-render
+                    lastMsgFingerprint = null; // force re-render
                     fetchMessages(searchInput.value.trim(), activeDateFilter);
                 } else if (data.type === 'clipboard_update') {
                     fetchClipboard();
@@ -1336,11 +1344,11 @@
     fetchClipboard();
     handleShareTarget();
     connectSSE();
-    // Poll every 5s as a safety net if SSE is silent
+    // Poll every 2s as a reliable safety net (SSE provides instant delivery on top)
     setInterval(() => {
         fetchMessages(searchInput.value.trim(), activeDateFilter);
         fetchClipboard();
-    }, 5000);
+    }, 2000);
 
     // Refresh when the tab becomes visible again (handles background SSE drops)
     document.addEventListener('visibilitychange', () => {
