@@ -157,8 +157,6 @@ async def sse_events(request: Request):
                     yield f"data: {data}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
-        except GeneratorExit:
-            pass
         finally:
             sse_manager.unsubscribe(user_id, q)
 
