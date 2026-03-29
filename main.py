@@ -115,8 +115,9 @@ def run_migrations():
 
 # ── SSE connection manager ──────────────────────────────────────────────────────
 import asyncio
+import json
 from typing import Dict, List
-from sse_starlette.sse import EventSourceResponse
+from fastapi.responses import StreamingResponse
 
 class SSEManager:
     def __init__(self):
@@ -133,7 +134,6 @@ class SSEManager:
             qs.remove(q)
 
     async def push(self, user_id: str, data: dict):
-        import json
         payload = json.dumps(data)
         for q in list(self.queues.get(user_id, [])):
             await q.put(payload)
@@ -156,13 +156,16 @@ async def sse_events(request: Request):
                     break
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=25.0)
-                    yield {"data": data}
+                    yield f"data: {data}\n\n"
                 except asyncio.TimeoutError:
-                    yield {"comment": "keepalive"}
+                    yield ": keepalive\n\n"
         finally:
             sse_manager.unsubscribe(user_id, q)
 
-    return EventSourceResponse(generator())
+    return StreamingResponse(generator(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
 
 
 # Expose git commit hash as version

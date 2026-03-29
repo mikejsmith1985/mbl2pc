@@ -8,5 +8,4 @@ httpx
 supabase>=2.0.0,<3.0.0
 itsdangerous
 pytest
-sse-starlette
 psycopg2-binary
