@@ -50,7 +50,6 @@
         header .btn-icon:active{background:rgba(255,255,255,.25);opacity:1}
         @media(hover:hover){header .btn-icon:hover{opacity:1}}
         header .btn-icon.active{background:none;opacity:1;color:#fbbf24}
-        #notifBtn.blocked{opacity:.45}
 
         /* Pinned panel */
         #pinnedPanel{flex-shrink:0;background:var(--pin-bg);border-bottom:2px solid var(--pin-border);display:none;max-height:160px;overflow-y:auto}
@@ -227,18 +226,7 @@
         #expiryPicker label{font-size:.8rem;color:var(--meta);display:block;margin-bottom:.3rem;font-weight:500}
         #expirySelect{width:100%;border:1px solid var(--input-border);border-radius:8px;padding:.3rem .5rem;font-family:inherit;font-size:.85rem;background:var(--input-bg);color:var(--recv-text);outline:none}
 
-        /* Notification help modal */
-        #notifModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center;padding:1rem}
-        #notifModal.open{display:flex}
-        .notif-card{background:var(--surface);border-radius:16px;padding:1.5rem;max-width:360px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.3)}
-        .notif-card h3{font-size:1rem;font-weight:600;margin-bottom:.5rem}
-        .notif-card p{font-size:.85rem;color:var(--meta);margin-bottom:.8rem;line-height:1.5}
-        .notif-card ol{font-size:.85rem;line-height:1.8;padding-left:1.2rem;color:var(--recv-text);margin-bottom:1rem}
-        .notif-card ol li{margin-bottom:.2rem}
-        .notif-card .notif-actions{display:flex;gap:.5rem;justify-content:flex-end}
-        .notif-card button{border:none;border-radius:8px;padding:.4rem .9rem;font-size:.85rem;font-weight:500;cursor:pointer}
-        .notif-card .btn-primary{background:var(--header-from);color:#fff}
-        .notif-card .btn-secondary{background:var(--input-bg);color:var(--recv-text);border:1px solid var(--input-border)}
+
 
         /* Toast */
         #toastContainer{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:.4rem;z-index:1000;pointer-events:none}
@@ -307,8 +295,7 @@
         #clipTimestamp{font-size:.7rem;color:var(--meta)}
         .clip-btns{display:flex;gap:.4rem}
         .clip-btn{border:none;border-radius:8px;padding:.3rem .7rem;font-size:.78rem;font-weight:500;cursor:pointer;font-family:inherit;transition:background .15s,color .15s}
-        .clip-btn-push{background:var(--header-from);color:#fff}
-        .clip-btn-push:hover{background:var(--header-to)}
+
         .clip-btn-copy{background:var(--input-bg);color:var(--recv-text);border:1px solid var(--input-border)}
         .clip-btn-copy:hover{border-color:var(--header-from);color:var(--header-from)}
     </style>
@@ -329,17 +316,7 @@
                 <circle cx="17.5" cy="11.5" r="1.25" fill="currentColor" stroke="none"/>
             </svg>
         </button>
-        <button class="btn-icon btn-notif" id="notifBtn" title="Enable notifications" aria-label="Notifications">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-        </button>
-        <button class="btn-icon" id="testNotifBtn" title="Test / diagnose notifications" aria-label="Test notification">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-            </svg>
-        </button>
+
         <button class="btn-icon" id="calendarBtn" title="Filter by date" aria-label="Browse by date">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -380,7 +357,7 @@
                 <span id="clipTimestamp"></span>
                 <div class="clip-btns">
                     <button class="clip-btn clip-btn-copy" id="clipCopyBtn">Copy &amp; Send</button>
-                    <button class="clip-btn clip-btn-push" id="clipPushBtn">📋 Push My Clipboard</button>
+                    <button class="clip-btn clip-btn-copy" id="clipPushBtn">📋 Push My Clipboard</button>
                 </div>
             </div>
             <div style="font-size:.72rem;color:var(--meta);margin-top:.1rem">
@@ -449,19 +426,6 @@
     </div>
     <div id="version"></div>
     <div id="toastContainer"></div>
-
-    <!-- Notification blocked help modal -->
-    <div id="notifModal" role="dialog" aria-modal="true">
-        <div class="notif-card">
-            <h3 id="notifModalTitle">🔔 Notifications need setup</h3>
-            <p id="notifModalDesc">Follow the steps below to enable notifications on this device.</p>
-            <div id="notifSteps"></div>
-            <div class="notif-actions">
-                <button class="btn-secondary" id="notifModalClose">Dismiss</button>
-                <button class="btn-primary" id="notifModalRetry">Try again</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Date picker popover -->
     <div id="datePopover" role="dialog" aria-label="Filter messages by date">
@@ -714,7 +678,7 @@
     });
 
     // ── Messages ───────────────────────────────────────────────────────
-    let lastMsgCount = 0;
+    let lastMsgId = null;
     let activeDateFilter = '';
 
     function fmtDateLabel(ts) {
@@ -735,8 +699,9 @@
         allMessages = messages;
         renderPinned();
         const chat = document.getElementById('chat');
-        if (messages.length === lastMsgCount && lastMsgCount > 0) return;
-        lastMsgCount = messages.length;
+        const currentLastId = messages.length ? messages[messages.length - 1].id : null;
+        if (currentLastId !== null && currentLastId === lastMsgId) return;
+        lastMsgId = currentLastId;
         chat.innerHTML = '';
         let lastDate = '';
         messages.forEach(m => {
@@ -818,7 +783,7 @@
             if (!res.ok) { toast('Failed to pin', 'error'); return; }
             const d = await res.json();
             toast(d.starred ? 'Pinned ⭐' : 'Unpinned');
-            lastMsgCount = 0; // force re-render
+            lastMsgId = null; // force re-render
             await fetchMessages();
         } catch (_) { toast('Error', 'error'); }
     }
@@ -831,7 +796,7 @@
             el.style.animation = 'none';
             el.style.transition = 'opacity .2s,transform .2s';
             el.style.opacity = '0'; el.style.transform = 'scale(.9)';
-            setTimeout(() => { el.remove(); lastMsgCount--; renderPinned(); }, 220);
+            setTimeout(() => { el.remove(); lastMsgId = null; renderPinned(); }, 220);
             toast('Deleted');
         } catch (_) { toast('Error', 'error'); }
     }
@@ -843,8 +808,9 @@
             if (q) params.set('q', q);
             if (date) params.set('date', date);
             if (last > 0) params.set('last', String(last));
-            if ([...params].length) url += '?' + params.toString();
-            const res = await fetch(url);
+            params.set('_t', Date.now()); // cache-buster
+            url += '?' + params.toString();
+            const res = await fetch(url, { cache: 'no-store' });
             if (res.status === 401) { window.location.href = '/login'; return; }
             if (!res.ok) {
                 console.error('fetchMessages HTTP error', res.status);
@@ -925,8 +891,7 @@
 
     function jumpToDate(dateStr) {
         activeDateFilter = dateStr;
-        lastMsgCount = 0;
-        calendarBtn.classList.add('active');
+        lastMsgId = null;
         datePopover.classList.remove('open');
         document.removeEventListener('click', closePopoverOutside);
         fetchMessages('', dateStr);
@@ -938,7 +903,7 @@
         calendarBtn.classList.remove('active');
         datePopover.classList.remove('open');
         document.removeEventListener('click', closePopoverOutside);
-        lastMsgCount = 0;
+        lastMsgId = null;
         fetchMessages();
     }
 
@@ -971,11 +936,11 @@
         // Clear date filter when searching
         if (q) { activeDateFilter = ''; document.getElementById('calendarBtn').classList.remove('active'); }
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => { lastMsgCount = 0; fetchMessages(q); }, 350);
+        searchTimer = setTimeout(() => { lastMsgId = null; fetchMessages(q); }, 350);
     });
     clearSearch.addEventListener('click', () => {
         searchInput.value = ''; clearSearch.style.display = 'none';
-        lastMsgCount = 0; fetchMessages();
+        lastMsgId = null; fetchMessages();
     });
 
     // ── Snippets ───────────────────────────────────────────────────────
@@ -1147,7 +1112,7 @@
                 await sendText(text);
             }
             clearAttach();
-            lastMsgCount = 0;
+            lastMsgId = null;
             await fetchMessages();
         } finally {
             _sending = false;
@@ -1236,217 +1201,6 @@
         }
     });
 
-    // ── Notification bell ──────────────────────────────────────────────
-    const notifBtn = document.getElementById('notifBtn');
-
-    // In-app notif preference: 'mbl2pc_notif' = '1' (on) | '0' (off) | absent (not yet set)
-    // Bell is gold when OS permission is 'granted' AND in-app pref is not '0'
-    // Bell is white when permission is 'default' OR pref is '0'
-    // Bell is dimmed when permission is 'denied'
-    function isBellActive() {
-        return ('Notification' in window) &&
-               Notification.permission === 'granted' &&
-               localStorage.getItem('mbl2pc_notif') !== '0';
-    }
-
-    function updateBellState() {
-        notifBtn.classList.remove('active', 'blocked');
-        if (!('Notification' in window)) {
-            notifBtn.title = 'Notifications not supported in this browser';
-            return;
-        }
-        if (isBellActive()) {
-            notifBtn.classList.add('active');
-            notifBtn.title = 'Notifications on — tap to turn off';
-        } else if (Notification.permission === 'denied') {
-            notifBtn.classList.add('blocked');
-            notifBtn.title = 'Notifications blocked — tap for help';
-        } else {
-            notifBtn.title = 'Enable notifications';
-        }
-    }
-
-    function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const raw = window.atob(base64);
-        return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
-    }
-
-    async function tryPushSubscribe(force = false) {
-        try {
-            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-                toast('Push not supported in this browser', 'error'); return;
-            }
-            const reg = await navigator.serviceWorker.ready;
-            const keyRes = await fetch(`${API}/push/vapid-public-key`);
-            if (!keyRes.ok) { toast('Push not configured on server', 'error'); return; }
-            const { public_key } = await keyRes.json();
-            let sub = await reg.pushManager.getSubscription();
-            // Only resubscribe if forced (bell tap) or no existing subscription
-            if (sub && force) { await sub.unsubscribe(); sub = null; }
-            if (!sub) {
-                sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(public_key)
-                });
-            }
-            const res = await fetch(`${API}/push/subscribe`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sub.toJSON())
-            });
-            if (!res.ok) toast('Could not register push subscription', 'error');
-        } catch (e) { toast('Push subscribe failed: ' + e.message, 'error'); }
-    }
-
-    async function tryPushUnsubscribe() {
-        try {
-            if (!('serviceWorker' in navigator)) return;
-            const reg = await navigator.serviceWorker.ready;
-            const sub = await reg.pushManager.getSubscription();
-            if (sub) await sub.unsubscribe();
-        } catch (_) {}
-    }
-
-    function getUnblockInstructions() {
-        const ua = navigator.userAgent;
-        const isIOS = /iPad|iPhone|iPod/.test(ua);
-        const isAndroid = /Android/.test(ua);
-        const isChrome = /Chrome/.test(ua) && !/Edg/.test(ua);
-        const isEdge = /Edg/.test(ua);
-        const isFirefox = /Firefox/.test(ua);
-        const isSafari = /Safari/.test(ua) && !isChrome && !isEdge;
-
-        if (isIOS && isSafari) {
-            return `<p>On iPhone/iPad, notifications require the app to be installed:</p>
-                <ol><li>Tap the <strong>Share</strong> button (□↑) in Safari</li>
-                <li>Tap <strong>Add to Home Screen</strong></li>
-                <li>Open the app from your Home Screen</li>
-                <li>Tap the bell again</li></ol>
-                <p>Already installed? Go to <strong>Settings → Safari → Notifications</strong> and allow <strong>mbl2pc.onrender.com</strong>.</p>`;
-        }
-        if (isAndroid && isChrome) {
-            return `<p>On Android Chrome:</p>
-                <ol><li>Tap the <strong>lock icon</strong> in the address bar</li>
-                <li>Tap <strong>Permissions → Notifications → Allow</strong></li>
-                <li>Reload the page and tap the bell again</li></ol>`;
-        }
-        if (isChrome || isEdge) {
-            return `<p>In your browser:</p>
-                <ol><li>Click the <strong>lock icon</strong> (🔒) in the address bar</li>
-                <li>Click <strong>Site settings</strong> or <strong>Permissions</strong></li>
-                <li>Set <strong>Notifications</strong> to <strong>Allow</strong></li>
-                <li>Reload the page and tap the bell again</li></ol>`;
-        }
-        if (isFirefox) {
-            return `<p>In Firefox:</p>
-                <ol><li>Click the <strong>shield</strong> or <strong>lock</strong> icon in the address bar</li>
-                <li>Go to <strong>Connection secure → More information → Permissions</strong></li>
-                <li>Set <strong>Receive Notifications</strong> to <strong>Allow</strong></li>
-                <li>Reload the page and tap the bell again</li></ol>`;
-        }
-        return `<p>In your browser:</p>
-            <ol><li>Click the <strong>lock / info icon</strong> in the address bar</li>
-            <li>Find <strong>Notifications</strong> in site permissions</li>
-            <li>Set to <strong>Allow</strong> and reload</li></ol>`;
-    }
-
-    function showNotifModal(title) {
-        document.getElementById('notifModalTitle').textContent = title || '🔔 Notifications';
-        document.getElementById('notifSteps').innerHTML = getUnblockInstructions();
-        document.getElementById('notifModal').classList.add('open');
-    }
-
-    document.getElementById('notifModalClose').addEventListener('click', () => {
-        document.getElementById('notifModal').classList.remove('open');
-    });
-    document.getElementById('notifModal').addEventListener('click', e => {
-        if (e.target === document.getElementById('notifModal'))
-            document.getElementById('notifModal').classList.remove('open');
-    });
-    document.getElementById('notifModalRetry').addEventListener('click', () => {
-        document.getElementById('notifModal').classList.remove('open');
-        notifBtn.click();
-    });
-
-    notifBtn.addEventListener('click', async () => {
-        if (!('Notification' in window)) {
-            toast('Notifications not supported in this browser', 'error');
-            return;
-        }
-
-        const perm = Notification.permission;
-
-        if (perm === 'denied') {
-            showNotifModal('🔔 Notifications are blocked');
-
-        } else if (isBellActive()) {
-            // Currently ON — turn off
-            localStorage.setItem('mbl2pc_notif', '0');
-            updateBellState();
-            toast('Notifications off');
-            tryPushUnsubscribe();
-
-        } else if (perm === 'granted') {
-            // Permission granted but user had turned off — turn back on
-            localStorage.setItem('mbl2pc_notif', '1');
-            updateBellState();
-            toast('Notifications on 🔔');
-            tryPushSubscribe(true); // force resubscribe
-
-        } else {
-            // 'default' — request permission from the browser
-            const result = await Notification.requestPermission();
-            if (result === 'granted') {
-                localStorage.setItem('mbl2pc_notif', '1');
-                updateBellState();
-                toast('Notifications enabled 🔔');
-                tryPushSubscribe(true); // force resubscribe
-            } else if (result === 'denied') {
-                updateBellState();
-                showNotifModal('🔔 Notifications were blocked');
-            } else {
-                toast('Tap the bell to enable notifications');
-            }
-        }
-    });
-
-    updateBellState(); // set correct color on page load
-
-    document.getElementById('testNotifBtn').addEventListener('click', async () => {
-        // Show local diagnostics first
-        const hasSW   = 'serviceWorker' in navigator;
-        const hasPush = 'PushManager' in window;
-        const perm    = ('Notification' in window) ? Notification.permission : 'unsupported';
-        const notifPref = localStorage.getItem('mbl2pc_notif') || '(not set)';
-        let swScope = 'none';
-        if (hasSW) {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            swScope = regs.map(r => r.scope).join(', ') || 'none registered';
-        }
-        let subEndpoint = 'none';
-        if (hasSW && hasPush) {
-            try {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.getSubscription();
-                subEndpoint = sub ? sub.endpoint.slice(0, 60) + '…' : 'no subscription';
-            } catch(e) { subEndpoint = 'error: ' + e.message; }
-        }
-        console.log('[PUSH DIAG]', { hasSW, hasPush, perm, notifPref, swScope, subEndpoint });
-        toast(`SW:${hasSW} Push:${hasPush} Perm:${perm} Pref:${notifPref}`);
-
-        // Then attempt a server-side test push
-        if (perm !== 'granted') { toast('Permission not granted — tap the bell first', 'error'); return; }
-        toast('Sending test push to server…');
-        try {
-            const res = await fetch(`${API}/push/test`, { method: 'POST' });
-            const d = await res.json();
-            if (!res.ok) toast('Server: ' + (d.detail || 'error'), 'error');
-            else toast(`Server: ${d.subscriptions} sub(s), ${d.sent} sent, ${d.failed} failed`);
-        } catch (e) { toast('Server test failed: ' + e.message, 'error'); }
-    });
-
     // ── Orientation / resize: re-scroll to bottom ──────────────────────
     let _resizeTimer;
     window.addEventListener('resize', () => {
@@ -1466,11 +1220,6 @@
             }
         });
         navigator.serviceWorker.register('/sw.js').catch(() => {});
-        // Auto-resubscribe on load if permission already granted (catches devices
-        // that granted permission but never got a subscription sent to the server)
-        if (Notification.permission === 'granted' && localStorage.getItem('mbl2pc_notif') !== '0') {
-            navigator.serviceWorker.ready.then(() => tryPushSubscribe());
-        }
     }
 
     // ── Clipboard Sync ─────────────────────────────────────────────────
@@ -1553,46 +1302,30 @@
         }
     });
 
-    // ── WebSocket ──────────────────────────────────────────────────────
-    let ws = null;
-    let wsBackoff = 1000; // ms, doubles on each failure up to 30s
+    // ── Server-Sent Events (real-time push from server) ────────────────
+    let evtSource = null;
 
-    function connectWS() {
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${proto}//${location.host}/ws`);
-
-        ws.onopen = () => {
-            wsBackoff = 1000; // reset on success
+    function connectSSE() {
+        if (evtSource) { evtSource.close(); evtSource = null; }
+        evtSource = new EventSource('/events');
+        evtSource.onopen = () => {
             fetchMessages(searchInput.value.trim(), activeDateFilter);
         };
-
-        ws.onmessage = (e) => {
+        evtSource.onmessage = (e) => {
             try {
                 const data = JSON.parse(e.data);
                 if (data.type === 'new_message') {
-                    lastMsgCount = 0; // force re-render on every notification
+                    lastMsgId = null; // force re-render
                     fetchMessages(searchInput.value.trim(), activeDateFilter);
                 } else if (data.type === 'clipboard_update') {
                     fetchClipboard();
                 }
             } catch (_) {}
         };
-
-        ws.onclose = () => {
-            ws = null;
-            // Reconnect with backoff
-            setTimeout(connectWS, wsBackoff);
-            wsBackoff = Math.min(wsBackoff * 2, 30000);
+        evtSource.onerror = () => {
+            // Browser automatically reconnects EventSource; no manual backoff needed
         };
-
-        ws.onerror = () => { ws && ws.close(); };
     }
-
-    // Send keepalive ping every 25s to prevent idle disconnects
-    setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping');
-    }, 25000);
 
     // ── Init ───────────────────────────────────────────────────────────
     document.getElementById('spinner').style.display = 'flex';
@@ -1602,24 +1335,19 @@
     fetchMessages();
     fetchClipboard();
     handleShareTarget();
-    connectWS();
-    // Poll every 5s — runs unconditionally so messages always appear even if WS is silent
+    connectSSE();
+    // Poll every 5s as a safety net if SSE is silent
     setInterval(() => {
         fetchMessages(searchInput.value.trim(), activeDateFilter);
         fetchClipboard();
     }, 5000);
 
-    // Refresh when the tab becomes visible again (handles background/sleep WS drops)
+    // Refresh when the tab becomes visible again (handles background SSE drops)
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'visible') return;
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            // WS silently died in background — force-close it, reset backoff, reconnect
-            if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
-            ws = null;
-            wsBackoff = 1000;
-            connectWS();
+        if (!evtSource || evtSource.readyState === EventSource.CLOSED) {
+            connectSSE();
         } else {
-            // WS appears live — still pull latest messages immediately
             fetchMessages(searchInput.value.trim(), activeDateFilter);
             fetchClipboard();
         }

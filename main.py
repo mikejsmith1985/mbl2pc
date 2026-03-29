@@ -8,7 +8,6 @@ except ImportError:
 # --- Google OAuth setup ---
 import os
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Response, BackgroundTasks
-from fastapi import WebSocket, WebSocketDisconnect
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -79,13 +78,6 @@ MIGRATIONS = [
         content TEXT NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
     )""",
-    """CREATE TABLE IF NOT EXISTS push_subscriptions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id TEXT NOT NULL,
-        endpoint TEXT NOT NULL UNIQUE,
-        keys JSONB NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-    )""",
     """CREATE TABLE IF NOT EXISTS clipboard (
         user_id TEXT PRIMARY KEY,
         content TEXT NOT NULL DEFAULT '',
@@ -121,52 +113,56 @@ def run_migrations():
         print(f"[WARN] Auto-migration failed (non-fatal): {e}", file=sys.stderr)
 
 
-# ── WebSocket connection manager ────────────────────────────────────────────────
+# ── SSE connection manager ──────────────────────────────────────────────────────
+import asyncio
 from typing import Dict, List
+from sse_starlette.sse import EventSourceResponse
 
-class ConnectionManager:
+class SSEManager:
     def __init__(self):
-        self.active: Dict[str, List[WebSocket]] = {}  # user_id -> [ws, ...]
+        self.queues: Dict[str, List[asyncio.Queue]] = {}
 
-    async def connect(self, ws: WebSocket, user_id: str):
-        await ws.accept()
-        self.active.setdefault(user_id, []).append(ws)
+    def subscribe(self, user_id: str) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        self.queues.setdefault(user_id, []).append(q)
+        return q
 
-    def disconnect(self, ws: WebSocket, user_id: str):
-        conns = self.active.get(user_id, [])
-        if ws in conns:
-            conns.remove(ws)
+    def unsubscribe(self, user_id: str, q: asyncio.Queue):
+        qs = self.queues.get(user_id, [])
+        if q in qs:
+            qs.remove(q)
 
-    async def broadcast(self, user_id: str, data: dict):
-        conns = list(self.active.get(user_id, []))
-        dead = []
-        for ws in conns:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws, user_id)
+    async def push(self, user_id: str, data: dict):
+        import json
+        payload = json.dumps(data)
+        for q in list(self.queues.get(user_id, [])):
+            await q.put(payload)
 
-manager = ConnectionManager()
+sse_manager = SSEManager()
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    user = websocket.session.get('user')
+@app.get("/events")
+async def sse_events(request: Request):
+    user = request.session.get('user')
     if not user or not isinstance(user, dict) or 'sub' not in user:
-        await websocket.close(code=4001)
-        return
+        raise HTTPException(status_code=401, detail="Not authenticated")
     user_id = user['sub']
-    await manager.connect(websocket, user_id)
-    try:
-        while True:
-            # Receive keepalive pings from client; ignore content
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, user_id)
-    except Exception:
-        manager.disconnect(websocket, user_id)
+    q = sse_manager.subscribe(user_id)
+
+    async def generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=25.0)
+                    yield {"data": data}
+                except asyncio.TimeoutError:
+                    yield {"comment": "keepalive"}
+        finally:
+            sse_manager.unsubscribe(user_id, q)
+
+    return EventSourceResponse(generator())
 
 
 # Expose git commit hash as version
@@ -402,13 +398,12 @@ async def send_message(request: Request, background_tasks: BackgroundTasks, msg:
         from datetime import timedelta
         item["expires_at"] = (datetime.now() + timedelta(hours=expires_hours)).isoformat(timespec="seconds")
     _supabase_insert(item)
-    background_tasks.add_task(_notify_other_devices, user['sub'], sender, msg)
 
     # Forward to Forge Terminal if configured so the agent can receive replies
     if FORGE_INBOUND_URL and WEBHOOK_SECRET and msg.strip():
         background_tasks.add_task(_forward_to_forge, msg, sender)
 
-    await manager.broadcast(user['sub'], {"type": "new_message"})
+    await sse_manager.push(user['sub'], {"type": "new_message"})
     return {"status": "Message received"}
 
 
@@ -443,7 +438,7 @@ async def send_image(
         "user_id": user['sub']
     }
     _supabase_insert(item)
-    await manager.broadcast(user['sub'], {"type": "new_message"})
+    await sse_manager.push(user['sub'], {"type": "new_message"})
     return {"status": "Image received", "image_url": image_url}
 
 
@@ -479,8 +474,7 @@ async def send_file(
         "user_id": user['sub']
     }
     _supabase_insert(item)
-    _notify_other_devices(user['sub'], sender, text or original_name)
-    await manager.broadcast(user['sub'], {"type": "new_message"})
+    await sse_manager.push(user['sub'], {"type": "new_message"})
     return {"status": "File received", "file_url": file_url, "file_name": original_name}
 
 
@@ -592,7 +586,11 @@ def get_messages(request: Request, q: str = "", date: str = "", last: int = 0):
     if last > 0:
         messages.reverse()
     has_more = last > 0 and len(messages) >= last
-    return {"messages": messages, "has_more": has_more}
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={"messages": messages, "has_more": has_more},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # Toggle star on a message
@@ -700,122 +698,11 @@ async def set_clipboard(request: Request, content: str = Form("")):
             "content": content,
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }, on_conflict="user_id").execute()
-        await manager.broadcast(user['sub'], {"type": "clipboard_update"})
+        await sse_manager.push(user['sub'], {"type": "clipboard_update"})
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-
-# ── Push Notifications ──────────────────────────────────────────────────────────
-VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
-VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
-VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIMS_EMAIL", "admin@mbl2pc.app")
-
-
-@app.get("/push/vapid-public-key")
-def push_vapid_key():
-    if not VAPID_PUBLIC_KEY:
-        raise HTTPException(status_code=503, detail="Push not configured")
-    return {"public_key": VAPID_PUBLIC_KEY}
-
-
-class PushSubscription(BaseModel):
-    endpoint: str
-    keys: dict
-
-
-@app.post("/push/subscribe")
-async def push_subscribe(request: Request, sub: PushSubscription):
-    user = get_current_user(request)
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase is not configured.")
-    if not VAPID_PUBLIC_KEY:
-        raise HTTPException(status_code=503, detail="Push not configured on server")
-    try:
-        # Upsert: store subscription keyed by endpoint
-        supabase.table("push_subscriptions").upsert({
-            "user_id": user['sub'],
-            "endpoint": sub.endpoint,
-            "keys": sub.keys,
-        }, on_conflict="endpoint").execute()
-        return {"status": "subscribed"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
-
-
-@app.post("/push/test")
-async def push_test(request: Request):
-    """Send an immediate test push to all registered subscriptions for the current user."""
-    import asyncio, concurrent.futures
-    user = get_current_user(request)
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not configured")
-    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
-        raise HTTPException(status_code=503, detail="VAPID keys not configured on server")
-    resp = supabase.table("push_subscriptions").select("endpoint,keys").eq("user_id", user['sub']).execute()
-    subs = resp.data or []
-    if not subs:
-        raise HTTPException(status_code=404, detail="No push subscriptions found for your account. Enable notifications first.")
-    loop = asyncio.get_event_loop()
-    results = []
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        futs = [loop.run_in_executor(pool, _send_push_notification, s, "mbl2pc test 🔔", "If you see this, push notifications are working!", "/send.html") for s in subs]
-        results = await asyncio.gather(*futs)
-    ok = sum(1 for r in results if r)
-    return {"subscriptions": len(subs), "sent": ok, "failed": len(subs) - ok}
-
-
-def _send_push_notification(sub_data: dict, title: str, body: str, url: str = "/send.html") -> bool:
-    """Send push to a single subscription. Returns True on success, False on failure."""
-    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
-        print("[PUSH] Skipped: VAPID keys not configured", file=sys.stderr)
-        return False
-    try:
-        from pywebpush import webpush, WebPushException
-        import json
-        endpoint = sub_data.get("endpoint", "")
-        print(f"[PUSH] Sending to {endpoint[:60]}…", file=sys.stderr)
-        resp = webpush(
-            subscription_info={
-                "endpoint": endpoint,
-                "keys": sub_data["keys"],
-            },
-            data=json.dumps({"title": title, "body": body, "url": url}),
-            vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims={"sub": f"mailto:{VAPID_CLAIMS_EMAIL}"},
-        )
-        print(f"[PUSH] Sent OK (status {resp.status_code})", file=sys.stderr)
-        return True
-    except Exception as e:
-        endpoint = sub_data.get('endpoint', '')[:60]
-        print(f"[PUSH] FAILED for {endpoint}: {e}", file=sys.stderr)
-        # If the subscription is gone (410 Gone or 404) remove it from DB
-        err_str = str(e)
-        if supabase and ('410' in err_str or '404' in err_str):
-            try:
-                supabase.table("push_subscriptions").delete().eq("endpoint", sub_data.get("endpoint","")).execute()
-                print(f"[PUSH] Removed stale subscription", file=sys.stderr)
-            except Exception:
-                pass
-        return False
-
-
-def _notify_other_devices(user_id: str, sender: str, text_preview: str):
-    """Send push to all subscriptions for this user."""
-    if not supabase or not VAPID_PRIVATE_KEY:
-        print(f"[PUSH] _notify_other_devices skipped: supabase={bool(supabase)} vapid={bool(VAPID_PRIVATE_KEY)}", file=sys.stderr)
-        return
-    try:
-        resp = supabase.table("push_subscriptions").select("endpoint,keys").eq("user_id", user_id).execute()
-        subs = resp.data or []
-        print(f"[PUSH] Notifying {len(subs)} subscription(s) for user {user_id[:12]}…", file=sys.stderr)
-        preview = (text_preview or "📎 File")[:80]
-        for sub in subs:
-            _send_push_notification(sub, f"mbl2pc — {sender}", preview)
-    except Exception as e:
-        print(f"[PUSH] _notify_other_devices error: {e}", file=sys.stderr)
-
-
 
 def _forward_to_forge(msg: str, sender: str):
     """Send a copy of the user's message to Forge Terminal (background task)."""
@@ -886,8 +773,8 @@ async def webhook_notify(payload: WebhookPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
-    # Fire Web Push to all registered devices for this user
-    _notify_other_devices(WEBHOOK_USER_ID, payload.sender, text)
+    # Notify connected clients via SSE
+    await sse_manager.push(WEBHOOK_USER_ID, {"type": "new_message"})
 
     return {"status": "delivered"}
 
