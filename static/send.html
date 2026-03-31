@@ -243,6 +243,21 @@
         #chat::-webkit-scrollbar,#snippetsList::-webkit-scrollbar{width:4px}
         #chat::-webkit-scrollbar-thumb,#snippetsList::-webkit-scrollbar-thumb{background:var(--input-border);border-radius:4px}
 
+        /* ── Multi-select mode ── */
+        #selectionBar{display:none;flex-shrink:0;background:var(--header-from);color:#fff;padding:.45rem .75rem;align-items:center;gap:.5rem}
+        #selectionBar.active{display:flex}
+        #selCountLabel{flex:1;font-size:.85rem;font-weight:500}
+        .sel-action-btn{background:rgba(255,255,255,.2);border:none;border-radius:8px;padding:.28rem .65rem;color:#fff;cursor:pointer;font-size:.82rem;font-family:inherit;transition:background .15s;-webkit-tap-highlight-color:transparent}
+        .sel-action-btn:hover{background:rgba(255,255,255,.35)}
+        .sel-action-btn.accent{background:rgba(255,255,255,.92);color:var(--header-from);font-weight:600}
+        .sel-action-btn.accent:hover{background:#fff}
+        .sel-action-btn:disabled{opacity:.4;cursor:default}
+        .sel-indicator{display:none;position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:var(--surface);border:2px solid var(--input-border);align-items:center;justify-content:center;font-size:.6rem;z-index:2;pointer-events:none}
+        body.select-mode .sel-indicator{display:flex}
+        body.select-mode .bubble{cursor:pointer;user-select:none;-webkit-user-select:none}
+        body.select-mode .bubble.selected{box-shadow:0 0 0 3px var(--header-from),var(--shadow)!important}
+        body.select-mode .bubble.selected .sel-indicator{background:var(--header-from);border-color:var(--header-from);color:#fff}
+
         /* Mobile */
         @media(max-width:480px){header{padding:.6rem max(calc(.75rem + env(safe-area-inset-right)),.75rem) .6rem max(calc(.75rem + env(safe-area-inset-left)),.75rem)}.bubble{max-width:88%}}
 
@@ -317,6 +332,14 @@
             </svg>
         </button>
 
+        <button class="btn-icon" id="selectModeBtn" title="Select messages" aria-label="Select messages">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="5" width="13" height="13" rx="2"/>
+                <path d="M7 10l2.5 2.5L14 8"/>
+                <path d="M19 3v4m0 4v4" stroke-width="1.5" opacity=".4"/>
+            </svg>
+        </button>
+
         <button class="btn-icon" id="calendarBtn" title="Filter by date" aria-label="Browse by date">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -344,6 +367,12 @@
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--meta);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" id="searchInput" placeholder="Search messages…" autocomplete="off">
         <button id="clearSearch">✕</button>
+    </div>
+
+    <div id="selectionBar">
+        <button class="sel-action-btn" id="selCancelBtn">✕ Cancel</button>
+        <span id="selCountLabel">0 selected</span>
+        <button class="sel-action-btn accent" id="selDownloadBtn" disabled>⬇ Save Images</button>
     </div>
 
     <div id="clipboardPanel" class="collapsed">
@@ -741,6 +770,7 @@
                 div.style.color = p.t;
             }
             let inner = `<span class="sender">${esc(m.sender||'unknown')}</span>`;
+            inner += `<span class="sel-indicator">✓</span>`;
             if (m.starred) inner += `<span class="starred-badge">⭐</span>`;
             if (m.image_url) inner += `<img src="${esc(m.image_url)}" loading="lazy" alt="image">`;
             if (m.file_url) {
@@ -760,6 +790,9 @@
             inner += `<button class="ba ba-del" title="Delete">✕</button>`;
             inner += `</div>`;
             div.innerHTML = inner;
+
+            // Restore selected state if this message was selected before re-render
+            if (selectedIds.has(m.id)) div.classList.add('selected');
 
             // Wire up action buttons
             const copyBtn = div.querySelector('.ba-copy');
@@ -1309,6 +1342,117 @@
             prompt('Copy this bookmarklet URL:', bm);
         }
     });
+
+    // ── Multi-select mode ──────────────────────────────────────────────
+    let selectMode = false;
+    let selectedIds = new Set();
+
+    function enterSelectMode() {
+        selectMode = true;
+        document.body.classList.add('select-mode');
+        document.getElementById('selectionBar').classList.add('active');
+        document.getElementById('selectModeBtn').classList.add('active');
+        updateSelectionBar();
+    }
+
+    function exitSelectMode() {
+        selectMode = false;
+        selectedIds.clear();
+        document.body.classList.remove('select-mode');
+        document.getElementById('selectionBar').classList.remove('active');
+        document.getElementById('selectModeBtn').classList.remove('active');
+        document.querySelectorAll('#chat .bubble.selected').forEach(b => b.classList.remove('selected'));
+        updateSelectionBar();
+    }
+
+    function updateSelectionBar() {
+        const count = selectedIds.size;
+        // Count how many selected messages actually have images
+        const imgCount = allMessages.filter(m =>
+            selectedIds.has(m.id) && (m.image_url || (m.file_url && isImg(m.file_name)))
+        ).length;
+        document.getElementById('selCountLabel').textContent =
+            count === 0 ? 'Tap messages to select'
+            : `${count} selected${imgCount ? ` · ${imgCount} image${imgCount > 1 ? 's' : ''}` : ''}`;
+        const dlBtn = document.getElementById('selDownloadBtn');
+        dlBtn.disabled = imgCount === 0;
+        dlBtn.textContent = imgCount > 0 ? `⬇ Save ${imgCount} Image${imgCount > 1 ? 's' : ''}` : '⬇ Save Images';
+    }
+
+    document.getElementById('selectModeBtn').addEventListener('click', () => {
+        if (selectMode) exitSelectMode(); else enterSelectMode();
+    });
+    document.getElementById('selCancelBtn').addEventListener('click', exitSelectMode);
+
+    // Tap to select/deselect bubbles in select mode (capture phase to beat action buttons)
+    document.getElementById('chat').addEventListener('click', function(e) {
+        if (!selectMode) return;
+        const bubble = e.target.closest('.bubble');
+        if (!bubble || !bubble.dataset.id) return;
+        e.stopPropagation();
+        const id = bubble.dataset.id;
+        if (selectedIds.has(id)) {
+            selectedIds.delete(id);
+            bubble.classList.remove('selected');
+        } else {
+            selectedIds.add(id);
+            bubble.classList.add('selected');
+        }
+        updateSelectionBar();
+    }, true);
+
+    // Long-press a bubble to enter select mode (mobile)
+    let _lpTimer = null;
+    document.getElementById('chat').addEventListener('touchstart', function(e) {
+        if (selectMode) return;
+        const bubble = e.target.closest('.bubble');
+        if (!bubble || !bubble.dataset.id) return;
+        _lpTimer = setTimeout(() => {
+            _lpTimer = null;
+            enterSelectMode();
+            const id = bubble.dataset.id;
+            selectedIds.add(id);
+            bubble.classList.add('selected');
+            updateSelectionBar();
+            navigator.vibrate && navigator.vibrate(40);
+        }, 500);
+    }, { passive: true });
+    document.getElementById('chat').addEventListener('touchend',  () => { clearTimeout(_lpTimer); _lpTimer = null; });
+    document.getElementById('chat').addEventListener('touchmove', () => { clearTimeout(_lpTimer); _lpTimer = null; }, { passive: true });
+
+    // Download selected images
+    document.getElementById('selDownloadBtn').addEventListener('click', downloadSelectedImages);
+
+    async function downloadSelectedImages() {
+        const imageMsgs = allMessages.filter(m =>
+            selectedIds.has(m.id) && (m.image_url || (m.file_url && isImg(m.file_name)))
+        );
+        if (!imageMsgs.length) { toast('No images in selection', 'error'); return; }
+        toast(`Downloading ${imageMsgs.length} image${imageMsgs.length > 1 ? 's' : ''}…`);
+        for (const m of imageMsgs) {
+            const url = m.image_url || m.file_url;
+            const ext = url.split('.').pop().split('?')[0].toLowerCase() || 'jpg';
+            const filename = m.file_name || `image_${m.id.slice(0, 8)}.${ext}`;
+            await _downloadBlob(url, filename);
+            await new Promise(r => setTimeout(r, 120)); // small gap between downloads
+        }
+        exitSelectMode();
+    }
+
+    async function _downloadBlob(url, filename) {
+        try {
+            const res = await fetch(url);
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl; a.download = filename;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        } catch (_) {
+            // CORS fallback: open in new tab so user can save manually
+            window.open(url, '_blank');
+        }
+    }
 
     // ── Server-Sent Events (real-time push from server) ────────────────
     let evtSource = null;
