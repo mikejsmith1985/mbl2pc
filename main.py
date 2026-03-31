@@ -226,7 +226,7 @@ async def login(request: Request):
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 # Google OAuth callback
-@app.route('/auth')
+@app.get('/auth')
 async def auth(request: Request):
     if not oauth or not hasattr(oauth, 'google'):
         print("[ERROR] OAuth is not configured properly.", file=sys.stderr)
