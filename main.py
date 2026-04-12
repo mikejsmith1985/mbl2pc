@@ -86,6 +86,32 @@ MIGRATIONS = [
 ]
 
 @app.on_event("startup")
+async def start_self_ping():
+    """Ping our own /health every 10 minutes to prevent Render free-tier spin-down."""
+    self_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not self_url:
+        print("[KEEPALIVE] RENDER_EXTERNAL_URL not set — self-ping disabled.", file=sys.stderr)
+        return
+
+    async def _ping_loop():
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Wait briefly for the server to finish starting before the first ping,
+            # then ping immediately — Render spins down after 15 min of inactivity,
+            # so we must not wait a full 10 min before the very first keepalive.
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    r = await client.get(f"{self_url}/health")
+                    print(f"[KEEPALIVE] ping {r.status_code}", file=sys.stderr)
+                except Exception as e:
+                    print(f"[KEEPALIVE] ping failed: {e}", file=sys.stderr)
+                await asyncio.sleep(600)  # wait 10 minutes before next ping
+
+    asyncio.create_task(_ping_loop())
+
+
+@app.on_event("startup")
 def run_migrations():
     db_url = os.environ.get("DATABASE_URL", "")
     if not db_url:
