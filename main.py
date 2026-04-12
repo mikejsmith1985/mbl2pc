@@ -66,6 +66,9 @@ from starlette.middleware.sessions import SessionMiddleware
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY", "change-this-key"))
 
+# Strong references to background tasks — prevents GC from silently killing them.
+_background_tasks: set = set()
+
 
 # ── Auto-migration on startup ──────────────────────────────────────────────────
 MIGRATIONS = [
@@ -108,7 +111,9 @@ async def start_self_ping():
                     print(f"[KEEPALIVE] ping failed: {e}", file=sys.stderr)
                 await asyncio.sleep(600)  # wait 10 minutes before next ping
 
-    asyncio.create_task(_ping_loop())
+    task = asyncio.create_task(_ping_loop())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @app.on_event("startup")
