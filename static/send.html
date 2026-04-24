@@ -778,7 +778,7 @@
                 if (isImg(fname)) {
                     inner += `<img src="${esc(m.file_url)}" loading="lazy" alt="${esc(fname)}">`;
                 } else {
-                    inner += `<a class="file-card" href="${esc(m.file_url)}" target="_blank" rel="noopener"><span class="file-icon">${ficon(fname)}</span><span><span class="fname">${esc(fname)}</span><br><span class="fhint">Tap to download</span></span></a>`;
+                    inner += `<a class="file-card" href="${esc(m.file_url)}" data-furl="${esc(m.file_url)}" data-fname="${esc(fname)}"><span class="file-icon">${ficon(fname)}</span><span><span class="fname">${esc(fname)}</span><br><span class="fhint">Tap to download</span></span></a>`;
                 }
             }
             if (m.text) inner += `<div class="text md-body">${renderMd(m.text)}</div>`;
@@ -793,6 +793,15 @@
 
             // Restore selected state if this message was selected before re-render
             if (selectedIds.has(m.id)) div.classList.add('selected');
+
+            // Force download for file cards (download attr ignored on cross-origin URLs)
+            const fileCard = div.querySelector('.file-card');
+            if (fileCard) {
+                fileCard.addEventListener('click', e => {
+                    e.preventDefault();
+                    _downloadBlob(fileCard.dataset.furl, fileCard.dataset.fname);
+                });
+            }
 
             // Wire up action buttons
             const copyBtn = div.querySelector('.ba-copy');
