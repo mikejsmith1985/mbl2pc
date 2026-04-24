@@ -493,6 +493,13 @@ async def send_file(
         raise HTTPException(status_code=400, detail="File exceeds 25 MB limit.")
     safe_name = f"file_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{original_name}"
     content_type = file.content_type or "application/octet-stream"
+    # Force download for types browsers would render inline (HTML, SVG, JS, XML, etc.)
+    _ext = os.path.splitext(original_name)[1].lower()
+    _renderable_types = {"text/html", "application/xhtml+xml", "image/svg+xml",
+                         "text/xml", "application/xml", "text/javascript", "application/javascript"}
+    _renderable_exts = {".html", ".htm", ".svg", ".xml", ".xhtml", ".js"}
+    if content_type in _renderable_types or _ext in _renderable_exts:
+        content_type = "application/octet-stream"
     file_url = _upload_to_supabase(contents, safe_name, content_type)
     if not sender:
         sender = detect_device(request)
