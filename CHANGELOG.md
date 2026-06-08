@@ -20,5 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the Python install step so Render builds the React assets automatically.
 
 ### Fixed
+- Blank white screen on production (`mbl2pc.onrender.com`) caused by the React JS
+  bundle 404-ing. `static/assets/` was gitignored so Render's Python service never
+  had the built files. Built assets are now committed to the repository so the app
+  works on any host without requiring a Node.js build step at deploy time.
+- `tsc -b` TypeScript error in `vite.config.ts` caused by `defineConfig` being
+  imported from `vite` instead of `vitest/config`; the latter correctly extends
+  the config type with the `test` property required by Vitest.
+- Pre-commit hook now correctly excludes `static/assets/` from the "new source
+  file must have a test" gate (compiled bundles are not authored source code).
 
 ### Removed
