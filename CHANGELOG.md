@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the Python install step so Render builds the React assets automatically.
 
 ### Fixed
+- Supabase free-tier project pausing, which took the app offline for months. The
+  startup keepalive pinged `/health`, an endpoint that returns a static response
+  and never queries the database — so it kept Render's web service awake while
+  Supabase counted the project as inactive and paused it after 7 days. Supabase
+  never resumes a paused project on its own; it requires a manual dashboard
+  restore. The keepalive now targets `/internal/keepalive`, which performs a
+  deliberate single-row read so the database registers real activity. `/health`
+  stays database-free because Render uses it as its liveness probe, and a
+  database blip must not be reported as the web service being down.
 - Blank white screen on production (`mbl2pc.onrender.com`) caused by the React JS
   bundle 404-ing. `static/assets/` was gitignored so Render's Python service never
   had the built files. Built assets are now committed to the repository so the app

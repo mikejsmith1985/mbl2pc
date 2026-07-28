@@ -88,9 +88,26 @@ MIGRATIONS = [
     )""",
 ]
 
+# ── Keepalive tuning ───────────────────────────────────────────────────────────
+# Two different free-tier services go to sleep for two different reasons, and a
+# single heartbeat has to satisfy both:
+#
+#   Render  — spins a free web service down after 15 minutes with no inbound
+#             HTTP request. Satisfied simply by the ping arriving.
+#   Supabase — pauses a free project after 7 days with no *database* activity,
+#             and never resumes it on its own; restoring is a manual dashboard
+#             action. Satisfied only if the request actually queries the database.
+#
+# This is why the ping targets KEEPALIVE_PATH rather than /health: /health is
+# Render's own liveness probe and must never depend on the database.
+RENDER_SPIN_DOWN_SECONDS = 15 * 60
+KEEPALIVE_INTERVAL_SECONDS = 10 * 60
+KEEPALIVE_PATH = "/internal/keepalive"
+
+
 @app.on_event("startup")
 async def start_self_ping():
-    """Ping our own /health every 10 minutes to prevent Render free-tier spin-down."""
+    """Ping ourselves every 10 minutes so neither Render nor Supabase falls asleep."""
     self_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     if not self_url:
         print("[KEEPALIVE] RENDER_EXTERNAL_URL not set — self-ping disabled.", file=sys.stderr)
@@ -105,11 +122,11 @@ async def start_self_ping():
             await asyncio.sleep(30)
             while True:
                 try:
-                    r = await client.get(f"{self_url}/health")
-                    print(f"[KEEPALIVE] ping {r.status_code}", file=sys.stderr)
+                    r = await client.get(f"{self_url}{KEEPALIVE_PATH}")
+                    print(f"[KEEPALIVE] ping {r.status_code} {r.text}", file=sys.stderr)
                 except Exception as e:
                     print(f"[KEEPALIVE] ping failed: {e}", file=sys.stderr)
-                await asyncio.sleep(600)  # wait 10 minutes before next ping
+                await asyncio.sleep(KEEPALIVE_INTERVAL_SECONDS)
 
     task = asyncio.create_task(_ping_loop())
     _background_tasks.add(task)
@@ -215,6 +232,12 @@ def version():
 # Health check endpoint (used by Render and UptimeRobot keep-alive pings)
 @app.get("/health")
 def health():
+    """Render's liveness probe (`healthCheckPath` in render.yaml).
+
+    Kept deliberately free of any database call so that a Supabase outage can
+    never be misread as this web service being unhealthy. The database heartbeat
+    is a separate endpoint — see touch_database_for_keepalive below.
+    """
     return {"status": "ok"}
 
 # CORS: wildcard origin is incompatible with allow_credentials=True (Starlette raises
@@ -327,6 +350,36 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
         print(f"[ERROR] Failed to initialize Supabase: {e}", file=sys.stderr)
 else:
     print("[ERROR] Missing SUPABASE_URL or SUPABASE_SERVICE_KEY", file=sys.stderr)
+
+
+# ── Keepalive heartbeat ────────────────────────────────────────────────────────
+@app.get(KEEPALIVE_PATH)
+def touch_database_for_keepalive():
+    """Deliberately query the database so Supabase does not pause this project.
+
+    Supabase counts a free project as inactive when it goes 7 days without
+    database queries, then pauses it — permanently, until someone clicks Restore
+    in the dashboard. A previous version of this app pinged /health on a timer,
+    which kept Render awake but issued no database query at all, so the project
+    was paused despite the heartbeat appearing to work.
+
+    The read below is intentionally the cheapest one available (a single id, one
+    row, no data returned to the caller) because its only job is to register as
+    activity. Authentication is deliberately not required: the self-ping is a
+    plain HTTP request with no session cookie to present.
+
+    This always answers 200. It is a heartbeat, not a health check — a database
+    problem must not make Render conclude that the web service itself has died.
+    """
+    if not supabase:
+        return {"status": "ok", "database": "not-configured"}
+    try:
+        supabase.table("messages").select("id").limit(1).execute()
+        return {"status": "ok", "database": "reachable"}
+    except Exception as keepalive_error:
+        print(f"[KEEPALIVE] database touch failed: {keepalive_error}", file=sys.stderr)
+        return {"status": "ok", "database": "unreachable"}
+
 
 # Ensure static/images directory exists
 if not os.path.exists("static/images"):
