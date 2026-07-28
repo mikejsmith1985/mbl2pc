@@ -34,8 +34,14 @@ source_files=$(echo "$staged_files" | grep -E '\.(go|js|jsx|ts|tsx|py|rs|java|cs
 new_source_files=$(git diff --cached --name-only --diff-filter=A 2>/dev/null | grep -E '\.(go|js|jsx|ts|tsx|py|rs|java|cs)$' | grep -vE '^(cmd/forge/web/|frontend/dist/|static/assets/|bin/)')
 if [[ -n "$new_source_files" ]]; then
     while IFS= read -r new_file; do
-        # Skip files that are themselves test files
+        # Skip files that are themselves test files.
+        # Python is the exception to suffix matching: pytest's dominant convention
+        # puts "test_" at the FRONT of the filename (test_api.py), so a suffix-only
+        # check reads a test file as untested source and blocks the commit.
         if echo "$new_file" | grep -qE '(_test\.go|\.test\.(js|jsx|ts|tsx)|\.spec\.(js|jsx|ts|tsx)|_test\.py|_test\.rs)$'; then
+            continue
+        fi
+        if echo "$new_file" | grep -qE '(^|/)test_[^/]*\.py$'; then
             continue
         fi
         extension="${new_file##*.}"
@@ -46,6 +52,21 @@ if [[ -n "$new_source_files" ]]; then
             if echo "$staged_files" | grep -qF "$expected_test" || [[ -f "$expected_test" ]]; then
                 has_test=true
             fi
+        elif [[ "$extension" == "py" ]]; then
+            # Python: pytest discovers both test_<name>.py and <name>_test.py.
+            # Without this branch a new .py file falls through to the JS/TS check
+            # below and is searched for "foo.test.py", which is not a convention in
+            # any Python project — so no new Python file could ever pass this gate.
+            module_dir=$(dirname "$new_file")
+            module_name=$(basename "$base_name")
+            [[ "$module_dir" == "." ]] && module_dir=""
+            for candidate in "test_${module_name}.py" "${module_name}_test.py"; do
+                expected_test="${module_dir:+${module_dir}/}${candidate}"
+                if echo "$staged_files" | grep -qF "$expected_test" || [[ -f "$expected_test" ]]; then
+                    has_test=true
+                    break
+                fi
+            done
         else
             # JS/TS: check for .test and .spec variants
             for test_suffix in ".test.${extension}" ".spec.${extension}"; do
