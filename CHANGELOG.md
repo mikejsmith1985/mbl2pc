@@ -38,5 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the config type with the `test` property required by Vitest.
 - Pre-commit hook now correctly excludes `static/assets/` from the "new source
   file must have a test" gate (compiled bundles are not authored source code).
+- Pre-commit "new source file must have a test" gate no longer blocks every new
+  Python file. It matched test files by suffix only (`_test.py`), so pytest's
+  standard `test_*.py` prefix — the convention this repo already uses in
+  `test_api.py` and `test_local.py` — was read as untested source. The gate also
+  sent non-Go files down a JS/TS branch that looked for `foo.test.py`, which is
+  not a Python convention, so no new `.py` file could ever satisfy it.
 
 ### Removed
