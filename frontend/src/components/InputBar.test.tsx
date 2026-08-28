@@ -88,6 +88,54 @@ describe('InputBar Enter-to-send', () => {
   });
 });
 
+describe('InputBar Enter-to-send on touch devices', () => {
+  /** Make the component believe it is running on a phone. */
+  function stubTouchPrimaryDevice() {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('coarse'), media: query }));
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('inserts a newline on Enter so the phone return key still works as a return key', () => {
+    stubTouchPrimaryDevice();
+    const sendSpy = vi.spyOn(api, 'sendTextMessage').mockResolvedValue(undefined);
+    const { getByLabelText } = render(<InputBar />);
+    const textarea = getByLabelText('Message input');
+
+    fireEvent.change(textarea, { target: { value: 'sent from my phone' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('still sends on Ctrl+Enter from a hardware keyboard paired to a tablet', async () => {
+    stubTouchPrimaryDevice();
+    const sendSpy = vi.spyOn(api, 'sendTextMessage').mockResolvedValue(undefined);
+    const { getByLabelText } = render(<InputBar />);
+    const textarea = getByLabelText('Message input');
+
+    fireEvent.change(textarea, { target: { value: 'from the ipad' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true });
+
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledOnce());
+  });
+
+  it('omits the Enter hint from the placeholder on a phone', () => {
+    stubTouchPrimaryDevice();
+    const { getByLabelText } = render(<InputBar />);
+
+    expect(getByLabelText('Message input')).toHaveAttribute('placeholder', 'Message…');
+  });
+
+  it('keeps the Enter hint in the placeholder on a desktop', () => {
+    const { getByLabelText } = render(<InputBar />);
+
+    expect(getByLabelText('Message input')).toHaveAttribute('placeholder', 'Message… (Enter to send)');
+  });
+});
+
 describe('InputBar clipboard paste', () => {
   it('attaches a pasted image as a preview chip', async () => {
     const { getByLabelText, findByText } = render(<InputBar />);

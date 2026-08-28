@@ -20,10 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the Python install step so Render builds the React assets automatically.
 
 ### Fixed
-- **Enter now sends a message.** Previously only Ctrl/Cmd+Enter sent, so pressing
-  Enter inserted a newline. Shift+Enter inserts the newline instead, and
-  Ctrl/Cmd+Enter still sends. Enter is ignored mid-IME-composition so it does not
-  truncate Japanese, Chinese, or accented input.
+- **Enter now sends a message on desktop.** Previously only Ctrl/Cmd+Enter sent,
+  so pressing Enter inserted a newline. On a desktop Enter sends and Shift+Enter
+  inserts the newline; on a phone or tablet the return key is left alone, because
+  a soft keyboard has no Shift+Enter and would otherwise make a second line
+  impossible to type. Ctrl/Cmd+Enter still sends everywhere. Enter is ignored
+  mid-IME-composition so it does not truncate Japanese, Chinese, or accented input.
 - **Pasting images, videos, and files now works.** The composer had no paste
   handler at all, and the clipboard button could only read plain text. Pasting
   into the message box or anywhere on the page now attaches the files, as does a

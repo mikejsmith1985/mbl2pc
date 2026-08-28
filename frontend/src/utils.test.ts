@@ -1,5 +1,5 @@
 /** Unit tests for pure utility functions — markdown, file detection, palettes, dates. */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   renderMarkdown,
   isImageFile,
@@ -13,6 +13,7 @@ import {
   findOversizedFile,
   formatByteSize,
   MAX_UPLOAD_BYTES,
+  isTouchPrimaryDevice,
 } from './utils';
 
 describe('renderMarkdown', () => {
@@ -198,5 +199,46 @@ describe('formatByteSize', () => {
 
   it('formats kilobyte-scale sizes without a decimal place', () => {
     expect(formatByteSize(2048)).toBe('2 KB');
+  });
+});
+
+describe('isTouchPrimaryDevice', () => {
+  /** Replace matchMedia so the pointer capability can be simulated. */
+  function stubPointerCapability(isCoarsePointer: boolean) {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('coarse') ? isCoarsePointer : !isCoarsePointer,
+      media: query,
+    }));
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a phone or tablet, where the primary pointer is a finger', () => {
+    stubPointerCapability(true);
+    expect(isTouchPrimaryDevice()).toBe(true);
+  });
+
+  it('reports a desktop with a mouse', () => {
+    stubPointerCapability(false);
+    expect(isTouchPrimaryDevice()).toBe(false);
+  });
+
+  it('treats a touchscreen laptop as a desktop, since its primary pointer is fine', () => {
+    stubPointerCapability(false);
+    expect(isTouchPrimaryDevice()).toBe(false);
+  });
+
+  it('falls back to touch-point count on a browser without matchMedia', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    vi.stubGlobal('navigator', { maxTouchPoints: 5 });
+    expect(isTouchPrimaryDevice()).toBe(true);
+  });
+
+  it('reports desktop when neither signal is available', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    vi.stubGlobal('navigator', {});
+    expect(isTouchPrimaryDevice()).toBe(false);
   });
 });

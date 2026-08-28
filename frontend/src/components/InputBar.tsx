@@ -11,6 +11,7 @@ import {
   findOversizedFile,
   formatByteSize,
   MAX_UPLOAD_BYTES,
+  isTouchPrimaryDevice,
 } from '../utils';
 import { AttachIcon, SendIcon, ClockIcon } from './icons';
 import { SnippetsPanel } from './SnippetsPanel';
@@ -134,17 +135,23 @@ export function InputBar() {
   }, [inputText, attachedFiles, isSending, deviceName, expiryHours, showToast]);
 
   /**
-   * Enter sends the message; Shift+Enter inserts a newline.
-   * Ctrl/Cmd+Enter keeps working so the previous shortcut is not taken away.
+   * On a desktop, Enter sends and Shift+Enter inserts a newline.
+   * On a phone or tablet, Enter stays a plain newline: a soft keyboard offers no
+   * Shift+Enter, so sending on Enter would make a second line impossible to type.
+   * Ctrl/Cmd+Enter sends everywhere, which is the shortcut this app already had.
    */
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== 'Enter') return;
 
     // While an input method editor is composing (Japanese, Chinese, accent entry)
-    // Enter commits the candidate word — sending here would truncate what is typed.
+    // Enter commits the candidate word, so sending here would truncate the input.
     if (event.nativeEvent.isComposing) return;
 
-    if (event.shiftKey) return; // deliberate newline
+    const isExplicitSendShortcut = event.ctrlKey || event.metaKey;
+    if (!isExplicitSendShortcut) {
+      if (event.shiftKey) return;          // deliberate newline
+      if (isTouchPrimaryDevice()) return;  // phone or tablet return key
+    }
 
     event.preventDefault();
     handleSend();
@@ -252,6 +259,12 @@ export function InputBar() {
   }
 
   const canSend = (inputText.trim().length > 0 || attachedFiles.length > 0) && !isSending;
+
+  // The Enter hint only belongs on devices where Enter actually sends
+  const isTouchDevice = isTouchPrimaryDevice();
+  const composerPlaceholder = attachedFiles.length > 0
+    ? 'Add a caption…'
+    : (isTouchDevice ? 'Message…' : 'Message… (Enter to send)');
   const selectedExpiryLabel = EXPIRY_OPTIONS.find(o => o.value === expiryHours)?.label ?? '24 hours';
 
   return (
@@ -302,7 +315,7 @@ export function InputBar() {
 
         <textarea
           ref={textareaRef}
-          placeholder={attachedFiles.length > 0 ? 'Add a caption…' : 'Message… (Enter to send)'}
+          placeholder={composerPlaceholder}
           value={inputText}
           onChange={e => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -352,7 +365,7 @@ export function InputBar() {
           onClick={handleSend}
           disabled={!canSend}
           aria-label="Send message"
-          title="Send (Enter)"
+          title={isTouchDevice ? 'Send' : 'Send (Enter)'}
         >
           {isSending ? '…' : <SendIcon size={17} />}
         </button>

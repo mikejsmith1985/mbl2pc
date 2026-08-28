@@ -255,3 +255,19 @@ export function formatByteSize(byteCount: number): string {
   if (byteCount >= BYTES_PER_KILOBYTE) return `${Math.round(byteCount / BYTES_PER_KILOBYTE)} KB`;
   return `${byteCount} bytes`;
 }
+
+// ── Input device ──────────────────────────────────────────────────────────────
+
+/**
+ * True when the device's primary pointer is a finger — a phone or tablet.
+ *
+ * Enter-to-send is a desktop convention: a soft keyboard has no Shift+Enter, so
+ * making Enter send would leave a phone with no way to type a second line.
+ * `(pointer: coarse)` describes the *primary* input, so a touchscreen laptop is
+ * still treated as a desktop, which is what its owner expects.
+ */
+export function isTouchPrimaryDevice(): boolean {
+  if (typeof matchMedia === 'function') return matchMedia('(pointer: coarse)').matches;
+  // Older browsers without media-query pointer support: fall back to touch points
+  return (navigator?.maxTouchPoints ?? 0) > 0;
+}
