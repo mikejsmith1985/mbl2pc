@@ -7,6 +7,7 @@ except ImportError:
 
 # --- Google OAuth setup ---
 import os
+import re
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Response, BackgroundTasks
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import RedirectResponse
@@ -57,7 +58,7 @@ def get_current_user(request: Request):
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from datetime import datetime
 import uuid
@@ -204,7 +205,10 @@ async def sse_events(request: Request):
                     data = await asyncio.wait_for(q.get(), timeout=25.0)
                     yield f"data: {data}\n\n"
                 except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
+                    # A real data frame, not a ": comment" - EventSource only
+                    # surfaces data frames to the page, so this is what lets a
+                    # resumed mobile PWA tell a live stream from a dead one.
+                    yield 'data: {"type": "heartbeat"}\n\n'
         finally:
             sse_manager.unsubscribe(user_id, q)
 
@@ -227,7 +231,9 @@ APP_VERSION = get_git_version()
 # Version endpoint
 @app.get("/version")
 def version():
-    return {"version": APP_VERSION}
+    # Uncached: the frontend polls this on resume to decide whether the tab is
+    # running an older build than the server, so a stale copy defeats the check.
+    return JSONResponse({"version": APP_VERSION}, headers={"Cache-Control": "no-store"})
 
 # Health check endpoint (used by Render and UptimeRobot keep-alive pings)
 @app.get("/health")
@@ -268,7 +274,13 @@ def serve_send_html(request: Request):
     # If not logged in, redirect to login
     if not request.session.get('user'):
         return RedirectResponse('/login')
-    return FileResponse("static/send.html")
+    # The HTML shell names the hashed JS/CSS bundles, so a cached copy pins the
+    # device to an old build. iOS home-screen apps are the worst offender: they
+    # hold the shell across launches and only refresh after a force-quit.
+    return FileResponse("static/send.html", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+    })
 
 # Google OAuth login
 @app.get('/login')
@@ -433,6 +445,26 @@ def _supabase_insert(item: dict):
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
+# Supabase Storage object keys accept only a conservative character set. A photo
+# named "Screenshot 2026-08-28 at 14.02.11 (1).png" or anything with an accent or
+# emoji is rejected outright, which is why some uploads failed while others worked.
+UNSAFE_STORAGE_KEY_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+MAX_STORAGE_KEY_BASE_LENGTH = 80
+
+
+def _build_storage_key(prefix: str, original_name: str) -> str:
+    """Build a Supabase-safe storage key that still hints at the original filename.
+
+    The user-visible name is stored separately in the database, so mangling the
+    key here costs nothing and prevents an upload failing on the filename alone.
+    """
+    base_name, extension = os.path.splitext(original_name)
+    safe_base = UNSAFE_STORAGE_KEY_CHARS.sub("_", base_name)[:MAX_STORAGE_KEY_BASE_LENGTH].strip("_")
+    safe_extension = UNSAFE_STORAGE_KEY_CHARS.sub("", extension)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return f"{prefix}_{timestamp}_{safe_base or 'file'}{safe_extension}"
+
+
 def _upload_to_supabase(contents: bytes, path: str, content_type: str) -> str:
     """Upload bytes to Supabase Storage and return the public URL."""
     if not supabase:
@@ -544,7 +576,7 @@ async def send_file(
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File exceeds 25 MB limit.")
-    safe_name = f"file_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{original_name}"
+    safe_name = _build_storage_key("file", original_name)
     content_type = file.content_type or "application/octet-stream"
     # Force download for types browsers would render inline (HTML, SVG, JS, XML, etc.)
     _ext = os.path.splitext(original_name)[1].lower()
