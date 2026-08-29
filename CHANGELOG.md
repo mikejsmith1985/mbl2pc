@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2026.8.29] - 2026-08-29
+
 ### Added
 - Forge Workflow initialized with Forge Terminal Workflow Architect
 - React + TypeScript + Vite frontend replacing the vanilla `send.html` implementation.
