@@ -207,3 +207,75 @@ describe('InputBar upload limits', () => {
     expect(sendFileSpy).not.toHaveBeenCalled();
   });
 });
+
+/** Replace navigator.clipboard for one test; jsdom ships no usable implementation. */
+function stubClipboard(clipboardStub: Partial<Clipboard>) {
+  Object.defineProperty(navigator, 'clipboard', { value: clipboardStub, configurable: true });
+}
+
+/** Build a ClipboardItem-alike whose getType resolves or rejects per format. */
+function buildClipboardItem(formats: Record<string, Blob | Error>) {
+  return {
+    types: Object.keys(formats),
+    getType: async (mimeType: string) => {
+      const format = formats[mimeType];
+      if (format instanceof Error) throw format;
+      return format;
+    },
+  } as unknown as ClipboardItem;
+}
+
+describe('InputBar clipboard button', () => {
+  it('attaches an image the clipboard button reads', async () => {
+    stubClipboard({
+      read: async () => [buildClipboardItem({ 'image/png': new Blob(['binary'], { type: 'image/png' }) })],
+      readText: async () => '',
+    });
+    const { getByLabelText, findByText } = render(<InputBar />);
+
+    fireEvent.click(getByLabelText('Paste from clipboard'));
+
+    expect(await findByText(/pasted-\d+\.png/)).toBeTruthy();
+  });
+
+  it('keeps reading a clipboard item after one of its formats refuses to be read', async () => {
+    stubClipboard({
+      read: async () => [buildClipboardItem({
+        'text/html':                new Blob(['<img>'], { type: 'text/html' }),
+        'com.apple.private-format': new Error('unsupported type'),
+        'image/png':                new Blob(['binary'], { type: 'image/png' }),
+      })],
+      readText: async () => '',
+    });
+    const { getByLabelText, findByText } = render(<InputBar />);
+
+    fireEvent.click(getByLabelText('Paste from clipboard'));
+
+    expect(await findByText(/pasted-\d+\.png/)).toBeTruthy();
+  });
+
+  it('tells the user when the clipboard holds nothing the composer can take', async () => {
+    const showToastSpy = vi.fn();
+    useStore.setState({ showToast: showToastSpy });
+    stubClipboard({ read: async () => [], readText: async () => '' });
+    const { getByLabelText } = render(<InputBar />);
+
+    fireEvent.click(getByLabelText('Paste from clipboard'));
+
+    await waitFor(() => expect(showToastSpy).toHaveBeenCalled());
+    expect(showToastSpy.mock.calls[0][0]).toMatch(/nothing/i);
+  });
+
+  it('confirms with a toast when a keyboard paste attaches a file', async () => {
+    const showToastSpy = vi.fn();
+    useStore.setState({ showToast: showToastSpy });
+    const { getByLabelText } = render(<InputBar />);
+
+    fireEvent.paste(getByLabelText('Message input'), buildPasteEvent([
+      new File(['binary'], 'screenshot.png', { type: 'image/png' }),
+    ]));
+
+    await waitFor(() => expect(showToastSpy).toHaveBeenCalled());
+    expect(showToastSpy.mock.calls[0][0]).toContain('screenshot.png');
+  });
+});

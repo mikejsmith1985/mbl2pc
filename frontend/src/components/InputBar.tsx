@@ -29,22 +29,41 @@ interface AttachedFile {
   previewUrl: string | null;
 }
 
+// Clipboard formats that carry the message text rather than an attachment.
+// Everything else on the clipboard is treated as a file worth attaching.
+const TEXT_ONLY_CLIPBOARD_TYPES = new Set(['text/plain', 'text/html', 'text/uri-list']);
+
 /**
  * Turn the blobs held by `navigator.clipboard.read()` into named files.
- * Each clipboard item can advertise several MIME types; the first one that
- * yields a blob is the representation to upload.
+ *
+ * Each clipboard item advertises several formats and Safari throws outright on
+ * its own private ones, so every format is tried in turn and a refusal simply
+ * moves on to the next — one unreadable format must not lose the whole image.
  */
 async function collectFilesFromClipboardItems(clipboardItems: ClipboardItem[]): Promise<File[]> {
   const collectedFiles: File[] = [];
+
   for (const clipboardItem of clipboardItems) {
     for (const mimeType of clipboardItem.types) {
-      if (mimeType === 'text/plain' || mimeType === 'text/html') continue;
-      const blob = await clipboardItem.getType(mimeType);
-      collectedFiles.push(new File([blob], deriveFileNameForClipboardItem('', mimeType), { type: mimeType }));
-      break;
+      if (TEXT_ONLY_CLIPBOARD_TYPES.has(mimeType)) continue;
+      try {
+        const blob = await clipboardItem.getType(mimeType);
+        collectedFiles.push(new File([blob], deriveFileNameForClipboardItem('', mimeType), { type: mimeType }));
+        break;
+      } catch {
+        // This representation is unavailable (a Safari private format, or a
+        // promise the source app never fulfilled) — try the next one.
+      }
     }
   }
+
   return collectedFiles;
+}
+
+/** Short confirmation text so an attachment is never added silently. */
+function describeAttachment(attachedFileList: File[]): string {
+  if (attachedFileList.length === 1) return `Attached ${attachedFileList[0].name}`;
+  return `Attached ${attachedFileList.length} files`;
 }
 
 export function InputBar() {
@@ -164,12 +183,20 @@ export function InputBar() {
     event.target.value = '';
   }
 
-  function appendFiles(newFiles: File[]) {
+  /**
+   * Add files to the composer as preview chips.
+   *
+   * Pastes and drops confirm with a toast because the user gets no other signal
+   * that the browser handed the file over; the file picker stays silent since
+   * choosing a file is already an explicit, visible act.
+   */
+  function appendFiles(newFiles: File[], shouldConfirm = false) {
     const newAttached: AttachedFile[] = newFiles.map(file => ({
       file,
       previewUrl: isImageFile(file.name) ? URL.createObjectURL(file) : null,
     }));
     setAttachedFiles(prev => [...prev, ...newAttached]);
+    if (shouldConfirm) showToast(describeAttachment(newFiles));
   }
 
   function removeAttachedFile(index: number) {
@@ -188,9 +215,9 @@ export function InputBar() {
   const attachFilesFromPaste = useCallback((clipboardData: DataTransfer | null): boolean => {
     const pastedFiles = extractFilesFromDataTransfer(clipboardData);
     if (pastedFiles.length === 0) return false;
-    appendFiles(pastedFiles);
+    appendFiles(pastedFiles, true);
     return true;
-  }, []);
+  }, [showToast]);
 
   function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
     if (attachFilesFromPaste(event.clipboardData)) event.preventDefault();
@@ -218,7 +245,7 @@ export function InputBar() {
         const clipboardItems = await navigator.clipboard.read();
         const blobFiles = await collectFilesFromClipboardItems(clipboardItems);
         if (blobFiles.length > 0) {
-          appendFiles(blobFiles);
+          appendFiles(blobFiles, true);
           return;
         }
       } catch {
@@ -231,7 +258,11 @@ export function InputBar() {
       if (clipboardText) {
         setInputText(prev => prev + clipboardText);
         textareaRef.current?.focus();
+        return;
       }
+      // Reaching here means the clipboard was readable but empty — saying so
+      // is the difference between "the button is broken" and "copy something first".
+      showToast('Nothing on the clipboard to paste', 'error');
     } catch {
       showToast('Clipboard access denied — press Ctrl+V instead', 'error');
     }
@@ -250,7 +281,7 @@ export function InputBar() {
     event.preventDefault();
     setIsDragOver(false);
     const droppedFiles = extractFilesFromDataTransfer(event.dataTransfer);
-    if (droppedFiles.length > 0) appendFiles(droppedFiles);
+    if (droppedFiles.length > 0) appendFiles(droppedFiles, true);
   }
 
   function insertSnippet(content: string) {

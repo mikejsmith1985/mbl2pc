@@ -16,10 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `frontend/` directory with Zustand state, typed API layer, and 14 React components.
 
 ### Changed
+- **The Snippets panel starts collapsed.** An open snippet list pushed the
+  conversation off a phone screen before a single message could be read; the
+  header still shows the snippet count and one tap opens it.
 - `render.yaml` build command now runs `npm ci --prefix frontend && npm run --prefix frontend build`
   before the Python install step so Render builds the React assets automatically.
 
 ### Fixed
+- **A clipboard image is no longer lost when one of its formats is unreadable.**
+  Safari advertises private formats alongside the real image and throws when asked
+  for them; each format is now tried independently, so one refusal moves on to the
+  next instead of abandoning the whole paste and falling back to plain text.
+- **Pastes and drops confirm what they attached.** A paste that produced nothing
+  used to look identical to one that worked, so the clipboard button now says
+  "Nothing on the clipboard to paste" when the clipboard is empty, and attaching a
+  file shows its name.
 - **Enter now sends a message on desktop.** Previously only Ctrl/Cmd+Enter sent,
   so pressing Enter inserted a newline. On a desktop Enter sends and Shift+Enter
   inserts the newline; on a phone or tablet the return key is left alone, because
