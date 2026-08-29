@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useStore } from './store';
 import { useSSE } from './hooks/useSSE';
+import { useAppUpdate } from './hooks/useAppUpdate';
 import { Header } from './components/Header';
 import { PinnedPanel } from './components/PinnedPanel';
 import { ChatArea } from './components/ChatArea';
@@ -22,6 +23,9 @@ export function App() {
 
   // Start the SSE connection — it lives for the entire app lifetime
   useSSE();
+
+  // Reload once when a resumed app finds the server on a newer build
+  useAppUpdate();
 
   // Load all initial data in parallel on first render
   useEffect(() => {

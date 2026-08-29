@@ -8,6 +8,21 @@ import type { Message, Snippet, UserProfile, ClipboardEntry } from './types';
 
 const API_BASE = window.location.origin;
 
+/**
+ * Build an error message from a failed response, preferring the backend's own
+ * `detail` field so the user is told *why* an upload was rejected.
+ */
+async function describeFailure(response: Response, fallbackMessage: string): Promise<string> {
+  try {
+    const errorBody = await response.json();
+    const detail = errorBody?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+  } catch {
+    // Non-JSON error body (proxy timeout, HTML error page) — use the fallback
+  }
+  return fallbackMessage;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 /** Fetch the Google-authenticated user's profile from the session. */
@@ -71,7 +86,7 @@ export async function sendTextMessage(text: string, sender: string, expiryHours:
   formData.append('sender', sender);
   formData.append('expires_hours', String(expiryHours));
   const response = await fetch(`${API_BASE}/send`, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error('Failed to send message');
+  if (!response.ok) throw new Error(await describeFailure(response, 'Failed to send message'));
 }
 
 /** Upload and send an image file with an optional caption. */
@@ -81,7 +96,7 @@ export async function sendImageMessage(file: File, sender: string, caption: stri
   formData.append('sender', sender);
   formData.append('text', caption);
   const response = await fetch(`${API_BASE}/send-image`, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error('Failed to send image');
+  if (!response.ok) throw new Error(await describeFailure(response, 'Failed to send image'));
 }
 
 /** Upload and send any file type with an optional caption. */
@@ -91,7 +106,7 @@ export async function sendFileMessage(file: File, sender: string, caption: strin
   formData.append('sender', sender);
   formData.append('text', caption);
   const response = await fetch(`${API_BASE}/send-file`, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error('Failed to send file');
+  if (!response.ok) throw new Error(await describeFailure(response, 'Failed to send file'));
 }
 
 // ── Snippets ──────────────────────────────────────────────────────────────────
@@ -125,7 +140,7 @@ export async function deleteSnippet(snippetId: string): Promise<void> {
 
 /** Return the latest synced clipboard content for the current user. */
 export async function fetchClipboard(): Promise<ClipboardEntry> {
-  const response = await fetch(`${API_BASE}/clipboard`);
+  const response = await fetch(`${API_BASE}/clipboard`, { cache: 'no-store' });
   if (!response.ok) throw new Error('Failed to fetch clipboard');
   return response.json();
 }
@@ -143,7 +158,9 @@ export async function pushClipboard(content: string): Promise<void> {
 /** Return the git commit hash that the server is running. */
 export async function fetchVersion(): Promise<string> {
   try {
-    const response = await fetch(`${API_BASE}/version`);
+    // no-store matters here: a cached /version response would make the app
+    // believe it is up to date forever and never pick up a deploy.
+    const response = await fetch(`${API_BASE}/version`, { cache: 'no-store' });
     if (!response.ok) return 'unknown';
     const data = await response.json();
     return String(data.version ?? 'unknown');

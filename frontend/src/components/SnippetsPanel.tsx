@@ -15,7 +15,9 @@ export function SnippetsPanel({ onInsert }: SnippetsPanelProps) {
   const removeSnippet = useStore(state => state.removeSnippet);
   const showToast     = useStore(state => state.showToast);
 
-  const [isCollapsed,    setIsCollapsed]    = useState(false);
+  // The panel starts closed: on a phone an open snippet list pushes the
+  // conversation off the screen before a single message has been read.
+  const [isCollapsed,    setIsCollapsed]    = useState(true);
   const [isAddingNew,    setIsAddingNew]    = useState(false);
   const [newSnippetName, setNewSnippetName] = useState('');
   const [newSnippetBody, setNewSnippetBody] = useState('');

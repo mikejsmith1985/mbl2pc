@@ -3,7 +3,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '../store';
 import { sendTextMessage, sendImageMessage, sendFileMessage } from '../api';
-import { isImageFile, getFileIcon } from '../utils';
+import {
+  isImageFile,
+  getFileIcon,
+  extractFilesFromDataTransfer,
+  deriveFileNameForClipboardItem,
+  findOversizedFile,
+  formatByteSize,
+  MAX_UPLOAD_BYTES,
+  isTouchPrimaryDevice,
+} from '../utils';
 import { AttachIcon, SendIcon, ClockIcon } from './icons';
 import { SnippetsPanel } from './SnippetsPanel';
 
@@ -18,6 +27,43 @@ const EXPIRY_OPTIONS = [
 interface AttachedFile {
   file: File;
   previewUrl: string | null;
+}
+
+// Clipboard formats that carry the message text rather than an attachment.
+// Everything else on the clipboard is treated as a file worth attaching.
+const TEXT_ONLY_CLIPBOARD_TYPES = new Set(['text/plain', 'text/html', 'text/uri-list']);
+
+/**
+ * Turn the blobs held by `navigator.clipboard.read()` into named files.
+ *
+ * Each clipboard item advertises several formats and Safari throws outright on
+ * its own private ones, so every format is tried in turn and a refusal simply
+ * moves on to the next — one unreadable format must not lose the whole image.
+ */
+async function collectFilesFromClipboardItems(clipboardItems: ClipboardItem[]): Promise<File[]> {
+  const collectedFiles: File[] = [];
+
+  for (const clipboardItem of clipboardItems) {
+    for (const mimeType of clipboardItem.types) {
+      if (TEXT_ONLY_CLIPBOARD_TYPES.has(mimeType)) continue;
+      try {
+        const blob = await clipboardItem.getType(mimeType);
+        collectedFiles.push(new File([blob], deriveFileNameForClipboardItem('', mimeType), { type: mimeType }));
+        break;
+      } catch {
+        // This representation is unavailable (a Safari private format, or a
+        // promise the source app never fulfilled) — try the next one.
+      }
+    }
+  }
+
+  return collectedFiles;
+}
+
+/** Short confirmation text so an attachment is never added silently. */
+function describeAttachment(attachedFileList: File[]): string {
+  if (attachedFileList.length === 1) return `Attached ${attachedFileList[0].name}`;
+  return `Attached ${attachedFileList.length} files`;
 }
 
 export function InputBar() {
@@ -66,6 +112,17 @@ export function InputBar() {
     if (!trimmedText && attachedFiles.length === 0) return;
     if (isSending) return;
 
+    // Reject oversized uploads up front — a 40 MB phone video would otherwise
+    // upload for a minute and then fail with an unexplained "Failed to send".
+    const oversizedFile = findOversizedFile(attachedFiles.map(attached => attached.file));
+    if (oversizedFile) {
+      showToast(
+        `${oversizedFile.name} is ${formatByteSize(oversizedFile.size)} — the limit is ${formatByteSize(MAX_UPLOAD_BYTES)}`,
+        'error',
+      );
+      return;
+    }
+
     setIsSending(true);
     try {
       if (attachedFiles.length > 0) {
@@ -87,19 +144,36 @@ export function InputBar() {
 
       setInputText('');
       reloadMessages();
-    } catch {
-      showToast('Failed to send', 'error');
+    } catch (sendError) {
+      // Surface the backend's own reason (unsupported type, size limit, storage
+      // error) instead of a generic message the user cannot act on.
+      showToast(sendError instanceof Error && sendError.message ? sendError.message : 'Failed to send', 'error');
     } finally {
       setIsSending(false);
     }
-  }, [inputText, attachedFiles, isSending, deviceName, expiryHours]);
+  }, [inputText, attachedFiles, isSending, deviceName, expiryHours, showToast]);
 
+  /**
+   * On a desktop, Enter sends and Shift+Enter inserts a newline.
+   * On a phone or tablet, Enter stays a plain newline: a soft keyboard offers no
+   * Shift+Enter, so sending on Enter would make a second line impossible to type.
+   * Ctrl/Cmd+Enter sends everywhere, which is the shortcut this app already had.
+   */
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Ctrl+Enter or Cmd+Enter sends the message
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      handleSend();
+    if (event.key !== 'Enter') return;
+
+    // While an input method editor is composing (Japanese, Chinese, accent entry)
+    // Enter commits the candidate word, so sending here would truncate the input.
+    if (event.nativeEvent.isComposing) return;
+
+    const isExplicitSendShortcut = event.ctrlKey || event.metaKey;
+    if (!isExplicitSendShortcut) {
+      if (event.shiftKey) return;          // deliberate newline
+      if (isTouchPrimaryDevice()) return;  // phone or tablet return key
     }
+
+    event.preventDefault();
+    handleSend();
   }
 
   function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
@@ -109,12 +183,20 @@ export function InputBar() {
     event.target.value = '';
   }
 
-  function appendFiles(newFiles: File[]) {
+  /**
+   * Add files to the composer as preview chips.
+   *
+   * Pastes and drops confirm with a toast because the user gets no other signal
+   * that the browser handed the file over; the file picker stays silent since
+   * choosing a file is already an explicit, visible act.
+   */
+  function appendFiles(newFiles: File[], shouldConfirm = false) {
     const newAttached: AttachedFile[] = newFiles.map(file => ({
       file,
       previewUrl: isImageFile(file.name) ? URL.createObjectURL(file) : null,
     }));
     setAttachedFiles(prev => [...prev, ...newAttached]);
+    if (shouldConfirm) showToast(describeAttachment(newFiles));
   }
 
   function removeAttachedFile(index: number) {
@@ -125,15 +207,64 @@ export function InputBar() {
     });
   }
 
+  /**
+   * Attach any images, videos, or documents carried by a paste event.
+   * Returns true when files were taken, so the caller can suppress the browser's
+   * own text insertion; plain-text pastes return false and are left untouched.
+   */
+  const attachFilesFromPaste = useCallback((clipboardData: DataTransfer | null): boolean => {
+    const pastedFiles = extractFilesFromDataTransfer(clipboardData);
+    if (pastedFiles.length === 0) return false;
+    appendFiles(pastedFiles, true);
+    return true;
+  }, [showToast]);
+
+  function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (attachFilesFromPaste(event.clipboardData)) event.preventDefault();
+  }
+
+  // A paste aimed at the page rather than the textarea still belongs to the
+  // composer — without this, Ctrl+V after copying a screenshot does nothing at all.
+  useEffect(() => {
+    function handleWindowPaste(event: ClipboardEvent) {
+      if (event.defaultPrevented) return;
+      if (attachFilesFromPaste(event.clipboardData)) event.preventDefault();
+    }
+    window.addEventListener('paste', handleWindowPaste);
+    return () => window.removeEventListener('paste', handleWindowPaste);
+  }, [attachFilesFromPaste]);
+
+  /**
+   * Pull whatever the system clipboard holds into the composer: image and file
+   * blobs become attachments, text is appended to the message box.
+   */
   async function handlePasteFromClipboard() {
+    // navigator.clipboard.read() exposes binary blobs; readText() cannot see them.
+    if (navigator.clipboard?.read) {
+      try {
+        const clipboardItems = await navigator.clipboard.read();
+        const blobFiles = await collectFilesFromClipboardItems(clipboardItems);
+        if (blobFiles.length > 0) {
+          appendFiles(blobFiles, true);
+          return;
+        }
+      } catch {
+        // Firefox and older Safari lack clipboard.read() — fall through to text
+      }
+    }
+
     try {
       const clipboardText = await navigator.clipboard.readText();
       if (clipboardText) {
         setInputText(prev => prev + clipboardText);
         textareaRef.current?.focus();
+        return;
       }
+      // Reaching here means the clipboard was readable but empty — saying so
+      // is the difference between "the button is broken" and "copy something first".
+      showToast('Nothing on the clipboard to paste', 'error');
     } catch {
-      showToast('Clipboard access denied', 'error');
+      showToast('Clipboard access denied — press Ctrl+V instead', 'error');
     }
   }
 
@@ -149,8 +280,8 @@ export function InputBar() {
   function handleDrop(event: React.DragEvent) {
     event.preventDefault();
     setIsDragOver(false);
-    const droppedFiles = Array.from(event.dataTransfer.files);
-    if (droppedFiles.length > 0) appendFiles(droppedFiles);
+    const droppedFiles = extractFilesFromDataTransfer(event.dataTransfer);
+    if (droppedFiles.length > 0) appendFiles(droppedFiles, true);
   }
 
   function insertSnippet(content: string) {
@@ -159,6 +290,12 @@ export function InputBar() {
   }
 
   const canSend = (inputText.trim().length > 0 || attachedFiles.length > 0) && !isSending;
+
+  // The Enter hint only belongs on devices where Enter actually sends
+  const isTouchDevice = isTouchPrimaryDevice();
+  const composerPlaceholder = attachedFiles.length > 0
+    ? 'Add a caption…'
+    : (isTouchDevice ? 'Message…' : 'Message… (Enter to send)');
   const selectedExpiryLabel = EXPIRY_OPTIONS.find(o => o.value === expiryHours)?.label ?? '24 hours';
 
   return (
@@ -209,10 +346,11 @@ export function InputBar() {
 
         <textarea
           ref={textareaRef}
-          placeholder={attachedFiles.length > 0 ? 'Add a caption…' : 'Message… (Ctrl+Enter to send)'}
+          placeholder={composerPlaceholder}
           value={inputText}
           onChange={e => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           rows={1}
           aria-label="Message input"
         />
@@ -258,7 +396,7 @@ export function InputBar() {
           onClick={handleSend}
           disabled={!canSend}
           aria-label="Send message"
-          title="Send (Ctrl+Enter)"
+          title={isTouchDevice ? 'Send' : 'Send (Enter)'}
         >
           {isSending ? '…' : <SendIcon size={17} />}
         </button>
