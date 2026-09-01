@@ -17,6 +17,6 @@ routes = [
 ]
 
 [vars]
-# The FastAPI origin this Worker pings and proxies to. Derived from the service
-# name in render.yaml — confirm it against the Render dashboard before deploying.
-ORIGIN_BASE_URL = "https://mbl2pc-fastapi.onrender.com"
+# The FastAPI origin this Worker pings and proxies to, as shown in the Render
+# dashboard.
+ORIGIN_BASE_URL = "https://mbl2pc.onrender.com"

@@ -37,7 +37,7 @@ const DO_NOT_FOLLOW_REDIRECTS = "manual";
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface Env {
-  /** Base URL of the FastAPI app, e.g. https://mbl2pc-fastapi.onrender.com */
+  /** Base URL of the FastAPI app, e.g. https://mbl2pc.onrender.com */
   ORIGIN_BASE_URL: string;
 }
 

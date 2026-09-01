@@ -7,7 +7,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import worker, { KEEPALIVE_PATH, type Env } from "./index";
 
-const ORIGIN_BASE_URL = "https://mbl2pc-fastapi.onrender.com";
+const ORIGIN_BASE_URL = "https://mbl2pc.onrender.com";
 const env: Env = { ORIGIN_BASE_URL };
 
 /** Builds the JSON body the keepalive endpoint returns, for a given db state. */
