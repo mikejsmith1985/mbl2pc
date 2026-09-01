@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that contract. Vite still writes to `static/` and still emits `/static/`-prefixed URLs;
   the Worker strips that prefix rather than changing the build, which leaves the Render
   deployment intact as a rollback.
+- **Wrangler upgraded to 4.x** (with `@cloudflare/workers-types` 5.x, which it requires).
+  Wrangler 3 parsed the `[assets]` block without complaint but never created the binding,
+  so the static site would have deployed with no files behind it and every page would
+  have 404ed. Caught by a dry run listing the bindings rather than by the deploy failing.
 
 - **README's deployment section now documents the live custom domain.** It still told the
   reader to point `OAUTH_REDIRECT_URI` and the Google authorized redirect URI at the
