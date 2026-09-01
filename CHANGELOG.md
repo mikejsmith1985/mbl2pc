@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The Worker's custom domain was silently skipped on the first deploy.** In
+  `worker/wrangler.toml` the `routes` key sat below the `[triggers]` table, and TOML
+  assigns every key after a table header to that table — so it was read as
+  `triggers.routes` and Cloudflare provisioned only the cron, warning rather than
+  failing. Moved above `[triggers]`, with a comment recording why the order matters.
+
 ### Added
 - **A Cloudflare Worker (`worker/`) that keeps the Supabase database awake.** A cron
   trigger calls `/internal/keepalive` on `https://mbl2pc.onrender.com` every 6 hours,
