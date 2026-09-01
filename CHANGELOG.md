@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **The app no longer pings itself to stay awake.** A startup task hit
+  `/internal/keepalive` every 10 minutes, which kept the web service running
+  around the clock and consumed the entire monthly free-instance-hour allowance
+  (720 of 750 hours) for a tool that is only used in short bursts. The service is
+  now allowed to idle, so hours track real usage instead of wall-clock time.
+- **The Supabase heartbeat now comes from an external scheduler.** Keeping the
+  database out of Supabase's 7-day auto-pause was the self-ping's other job, and
+  that job still matters. A Cloudflare Cron Trigger now calls
+  `/internal/keepalive` every 6 hours — it keeps working while the web service
+  sleeps, which the self-ping could not. The endpoint itself is unchanged.
+
+### Removed
+- `RENDER_SPIN_DOWN_SECONDS` and `KEEPALIVE_INTERVAL_SECONDS`, which only
+  described the retired self-ping timer, replaced by `SUPABASE_PAUSE_AFTER_SECONDS`
+  and `EXTERNAL_KEEPALIVE_INTERVAL_SECONDS`.
 
 ## [2026.8.29] - 2026-08-29
 
