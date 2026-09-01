@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The whole app now runs on Cloudflare (`worker/src/`), not just the domain.** The
+  FastAPI service stayed on Render behind a proxy after the last release, so it still
+  slept after fifteen idle minutes and still cost thirty to fifty seconds to wake. The
+  port removes that: Workers have no instance to spin down. Sign-in, all twenty-odd
+  routes, uploads, the real-time stream and the static assets are served from the edge.
+- **`NotificationHub`, a Durable Object carrying the real-time stream.** The FastAPI app
+  fanned notifications out through a dictionary of asyncio queues in process memory,
+  which cannot survive a runtime where two requests from one person may run in different
+  isolates. A Durable Object named after the user's Google `sub` restores exactly that
+  per-user subscriber list, and is the one place all of a user's tabs can reach.
+
 ### Changed
+- **Sign-in moved from Authlib to Arctic, and the session from Starlette to a signed
+  cookie.** Same Google authorization-code flow, now with PKCE, and the same profile
+  fields in the session. Because every query runs under the Supabase service key — which
+  bypasses row-level security — the cookie signature is the only thing stopping someone
+  editing their own `sub` to read another account, so it is covered by its own tests.
+- **The scheduled heartbeat queries the database directly** instead of making an HTTP
+  request to the app's own public URL. The app now runs inside the Worker, so the round
+  trip is gone and a mistyped origin can no longer break it.
+- **The React frontend is untouched.** Every route, form field and response shape in the
+  Worker matches what `frontend/src/api.ts` already sends, and the handler tests assert
+  that contract. Vite still writes to `static/` and still emits `/static/`-prefixed URLs;
+  the Worker strips that prefix rather than changing the build, which leaves the Render
+  deployment intact as a rollback.
+- **Wrangler upgraded to 4.x** (with `@cloudflare/workers-types` 5.x, which it requires).
+  Wrangler 3 parsed the `[assets]` block without complaint but never created the binding,
+  so the static site would have deployed with no files behind it and every page would
+  have 404ed. Caught by a dry run listing the bindings rather than by the deploy failing.
+
 - **README's deployment section now documents the live custom domain.** It still told the
   reader to point `OAUTH_REDIRECT_URI` and the Google authorized redirect URI at the
   Render URL, which stopped being true once `mbl2pc.rootlevellabs.tech` went live. Also

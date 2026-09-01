@@ -1,7 +1,10 @@
-# Cloudflare Worker for mbl2pc — scheduled Supabase heartbeat + custom domain.
+# Cloudflare Worker running the whole mbl2pc app: API, sign-in, static assets,
+# the real-time notification hub, and the scheduled Supabase heartbeat.
 name = "mbl2pc"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
+# Required for the Durable Object to use standard Web streams for its SSE fan-out.
+compatibility_flags = ["nodejs_compat"]
 
 # ── Custom domain ──────────────────────────────────────────────────────────────
 # Cloudflare provisions the DNS record and certificate for this hostname. The
@@ -14,13 +17,36 @@ routes = [
   { pattern = "mbl2pc.rootlevellabs.tech", custom_domain = true }
 ]
 
+# ── Static assets ──────────────────────────────────────────────────────────────
+# The built React app. Vite writes here and emits its bundle URLs under /static/,
+# which the Worker strips before looking a file up — see the catch-all route in
+# handlers.ts. Keeping the build output unchanged leaves Render a valid rollback.
+[assets]
+directory = "../static"
+binding = "ASSETS"
+
+# ── Real-time notifications ────────────────────────────────────────────────────
+# One instance per user, named after their Google `sub`. This is what replaces
+# the FastAPI app's in-process subscriber list: the single place every tab
+# belonging to one person can reach, which plain Workers cannot provide.
+[[durable_objects.bindings]]
+name = "NOTIFICATION_HUB"
+class_name = "NotificationHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NotificationHub"]
+
 # ── Scheduled heartbeat ────────────────────────────────────────────────────────
 # Every 6 hours. Supabase pauses a free project after 7 days without database
 # activity, so this has a very wide margin — even several missed runs are safe.
 [triggers]
 crons = ["0 */6 * * *"]
 
+# ── Non-secret configuration ───────────────────────────────────────────────────
+# Secrets are NOT here. GOOGLE_CLIENT_SECRET, SESSION_SECRET_KEY,
+# SUPABASE_SERVICE_KEY and WEBHOOK_SECRET are set with `wrangler secret put`
+# so they never enter the repository.
 [vars]
-# The FastAPI origin this Worker pings and proxies to, as shown in the Render
-# dashboard.
-ORIGIN_BASE_URL = "https://mbl2pc.onrender.com"
+OAUTH_REDIRECT_URI = "https://mbl2pc.rootlevellabs.tech/auth"
+SUPABASE_STORAGE_BUCKET = "mbl2pc-files"

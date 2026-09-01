@@ -1,130 +1,64 @@
 /**
- * Cloudflare Worker fronting mbl2pc: it keeps the Supabase database awake on a
- * schedule, and serves the app from mbl2pc.rootlevellabs.tech.
+ * The mbl2pc application, running entirely on Cloudflare.
  *
- * Why this exists
- * ---------------
- * mbl2pc used to ping itself every 10 minutes so its web host would never idle.
- * That worked, but it kept the service running around the clock and consumed the
- * entire monthly free-instance-hour allowance for a tool that is only used in
- * short bursts. The service is now allowed to sleep.
+ * This replaces the FastAPI app that ran on Render. That app was on a free tier
+ * that sleeps after fifteen idle minutes, so the first request after a quiet
+ * period waited thirty to fifty seconds for the service to wake. Workers have no
+ * such state to restore: there is nothing to spin down, and nothing to spin up.
  *
- * Something still has to keep the database alive: Supabase pauses a free project
- * after 7 days with no database activity, and only a manual dashboard click
- * brings it back. That heartbeat cannot live inside a service that is allowed to
- * sleep, so it lives here instead — a scheduler that keeps running regardless.
+ * The React frontend is unchanged. Every route in `handlers.ts` matches what
+ * `frontend/src/api.ts` already calls, so the port is invisible from the browser.
+ *
+ * Three responsibilities live here:
+ *   fetch      — serves the app and its static assets
+ *   scheduled  — the six-hourly heartbeat that stops Supabase pausing
+ *   the export — NotificationHub, which the Durable Object binding resolves
  */
 
-// ── Constants ──────────────────────────────────────────────────────────────────
+import { createApp, type DataLayer } from "./handlers";
+import { hasSupabaseConfig, describeMissingConfig, type Env } from "./env";
+import * as supabaseData from "./supabase";
+
+export { NotificationHub } from "./notification-hub";
+
+/** Built once per isolate; Hono routing is stateless, so it is safe to reuse. */
+const app = createApp();
 
 /**
- * The origin endpoint that deliberately queries the database. It is separate
- * from the host's own /health probe on purpose: /health must never depend on the
- * database, or a database blip would make the host restart a healthy service.
- */
-export const KEEPALIVE_PATH = "/internal/keepalive";
-
-/** The only `database` value from the heartbeat that means everything is well. */
-const DATABASE_STATE_REACHABLE = "reachable";
-
-/**
- * Redirects must reach the visitor's browser rather than being resolved here.
- * Google sign-in is a chain of redirects; a Worker that followed them itself
- * would swallow the handshake and login would hang.
- */
-const DO_NOT_FOLLOW_REDIRECTS = "manual";
-
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-export interface Env {
-  /** Base URL of the FastAPI app, e.g. https://mbl2pc.onrender.com */
-  ORIGIN_BASE_URL: string;
-}
-
-/** Shape of the JSON the keepalive endpoint answers with. */
-interface KeepaliveReport {
-  status: string;
-  database: string;
-}
-
-// ── Scheduled heartbeat ────────────────────────────────────────────────────────
-
-/**
- * Calls the origin's keepalive endpoint so Supabase registers database activity.
+ * Queries the database on a schedule so Supabase does not pause the project.
  *
- * Throws on any unhealthy result rather than logging quietly. A thrown error
- * marks the run as failed in the Cloudflare dashboard, which is the only way a
- * broken heartbeat becomes visible before the 7-day pause window runs out.
+ * Supabase pauses a free project after seven days without database activity, and
+ * only a manual dashboard click brings it back. This used to be an HTTP request
+ * the app made to itself; now the app runs here, so it is a direct query — one
+ * fewer moving part, and immune to a mistyped origin URL.
+ *
+ * Errors are thrown rather than logged. A thrown error marks the run failed in
+ * the Cloudflare dashboard, which is the only warning that arrives before the
+ * seven-day window runs out.
  */
-async function runScheduledKeepalive(env: Env): Promise<void> {
-  const keepaliveUrl = `${env.ORIGIN_BASE_URL}${KEEPALIVE_PATH}`;
-  const response = await fetch(keepaliveUrl);
-
-  if (!response.ok) {
-    throw new Error(`Keepalive ping to ${keepaliveUrl} returned ${response.status}`);
-  }
-
-  // The endpoint answers 200 even when the database is down — it is a heartbeat,
-  // not a health check. So the body, not the status code, is what must be read.
-  const report = (await response.json()) as KeepaliveReport;
-
-  if (report.database !== DATABASE_STATE_REACHABLE) {
+async function runScheduledKeepalive(env: Env, data: DataLayer): Promise<void> {
+  if (!hasSupabaseConfig(env)) {
     throw new Error(
-      `Keepalive ping succeeded but the database is "${report.database}" — ` +
-        "Supabase is not registering activity and will pause.",
+      `Keepalive cannot run: Supabase is not configured (missing ${describeMissingConfig(env).join(", ")}).`,
     );
   }
 
-  console.log(`[KEEPALIVE] database ${report.database}`);
+  await data.touchDatabase(data.createSupabaseClient(env));
+  console.log("[KEEPALIVE] database reachable");
 }
-
-// ── Domain proxy ───────────────────────────────────────────────────────────────
-
-/**
- * Passes a visitor's request straight through to the FastAPI origin.
- *
- * This is deliberately a thin passthrough. As the app is ported off its current
- * host, individual routes get answered here natively instead, and the proxy
- * shrinks — so the domain can move today without waiting for the whole port.
- */
-async function proxyRequestToOrigin(request: Request, env: Env): Promise<Response> {
-  if (!env.ORIGIN_BASE_URL) {
-    return new Response("ORIGIN_BASE_URL is not configured for this Worker.", {
-      status: 500,
-    });
-  }
-
-  const incomingUrl = new URL(request.url);
-  const targetUrl = `${env.ORIGIN_BASE_URL}${incomingUrl.pathname}${incomingUrl.search}`;
-
-  const forwardedRequest = new Request(targetUrl, {
-    method: request.method,
-    headers: request.headers,
-    body: request.body,
-    redirect: DO_NOT_FOLLOW_REDIRECTS,
-    // Required when forwarding a streamed body; harmless when there is none.
-    ...(request.body ? { duplex: "half" } : {}),
-  } as RequestInit);
-
-  const originResponse = await fetch(forwardedRequest);
-
-  // Rebuilt rather than returned as-is so the headers are mutable downstream.
-  // Passing the body through untouched is what keeps the /events SSE stream live.
-  return new Response(originResponse.body, originResponse);
-}
-
-// ── Worker entry points ────────────────────────────────────────────────────────
 
 export default {
-  async scheduled(
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
+    return app.fetch(request, env, ctx);
+  },
+
+  scheduled(
     _controller: ScheduledController,
     env: Env,
     _ctx: ExecutionContext,
+    // Injected only by tests; production always uses the real data layer.
+    data: DataLayer = supabaseData,
   ): Promise<void> {
-    await runScheduledKeepalive(env);
-  },
-
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
-    return proxyRequestToOrigin(request, env);
+    return runScheduledKeepalive(env, data);
   },
 };
