@@ -7,12 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **The Worker's custom domain was silently skipped on the first deploy.** In
-  `worker/wrangler.toml` the `routes` key sat below the `[triggers]` table, and TOML
-  assigns every key after a table header to that table — so it was read as
-  `triggers.routes` and Cloudflare provisioned only the cron, warning rather than
-  failing. Moved above `[triggers]`, with a comment recording why the order matters.
+_Nothing yet._
+
+## [2026.9.1] - 2026-09-01
 
 ### Added
 - **A Cloudflare Worker (`worker/`) that keeps the Supabase database awake.** A cron
@@ -39,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that job still matters. A Cloudflare Cron Trigger now calls
   `/internal/keepalive` every 6 hours — it keeps working while the web service
   sleeps, which the self-ping could not. The endpoint itself is unchanged.
-
 - **README's keep-alive instructions replaced.** They told the reader to set up an
   UptimeRobot monitor pinging every 5 minutes to keep the service warm — the exact
   behaviour that exhausted the hour allowance. Replaced with the Worker setup, including
@@ -49,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RENDER_SPIN_DOWN_SECONDS` and `KEEPALIVE_INTERVAL_SECONDS`, which only
   described the retired self-ping timer, replaced by `SUPABASE_PAUSE_AFTER_SECONDS`
   and `EXTERNAL_KEEPALIVE_INTERVAL_SECONDS`.
+
+### Fixed
+- **The Worker's custom domain was silently skipped on the first deploy.** In
+  `worker/wrangler.toml` the `routes` key sat below the `[triggers]` table, and TOML
+  assigns every key after a table header to that table — so it was read as
+  `triggers.routes` and Cloudflare provisioned only the cron, warning rather than
+  failing. Moved above `[triggers]`, with a comment recording why the order matters.
 
 ## [2026.8.29] - 2026-08-29
 
