@@ -1,5 +1,9 @@
-"""Tests for the keepalive heartbeat that keeps BOTH free-tier hosting
-dependencies alive: Render's web service and the Supabase database project."""
+"""Tests for the keepalive heartbeat that stops Supabase pausing the project.
+
+The heartbeat used to be driven by the app pinging itself every 10 minutes. That
+kept the web service awake around the clock, which consumed the whole monthly
+free-instance-hour allowance. It is now driven by an external scheduler instead,
+so these tests cover the endpoint plus a guard against the self-ping returning."""
 
 from unittest.mock import MagicMock
 
@@ -7,7 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from main import app, KEEPALIVE_PATH, KEEPALIVE_INTERVAL_SECONDS, RENDER_SPIN_DOWN_SECONDS
+from main import (
+    app,
+    KEEPALIVE_PATH,
+    EXTERNAL_KEEPALIVE_INTERVAL_SECONDS,
+    SUPABASE_PAUSE_AFTER_SECONDS,
+)
 
 # Render's own liveness probe, declared as `healthCheckPath` in render.yaml.
 RENDER_HEALTH_CHECK_PATH = "/health"
@@ -84,6 +93,23 @@ def test_keepalive_path_is_separate_from_the_render_health_check():
     assert KEEPALIVE_PATH != RENDER_HEALTH_CHECK_PATH
 
 
-def test_keepalive_interval_stays_under_render_spin_down_window():
-    """Pinging less often than Render's idle window would let the service sleep."""
-    assert KEEPALIVE_INTERVAL_SECONDS < RENDER_SPIN_DOWN_SECONDS
+def test_no_self_ping_task_is_registered_on_startup():
+    """Regression guard for the free-tier hour exhaustion.
+
+    A startup task that pinged this app every 10 minutes kept the web service
+    awake 24/7 and burned the entire monthly free-instance-hour allowance. The
+    heartbeat must now come from outside, so nothing may re-register a self-ping.
+    """
+    startup_handler_names = {handler.__name__ for handler in app.router.on_startup}
+
+    assert "start_self_ping" not in startup_handler_names
+
+
+def test_external_keepalive_interval_beats_the_supabase_pause_window():
+    """The external scheduler must fire well inside Supabase's inactivity window.
+
+    Supabase pauses a free project after 7 days with no database activity, and
+    only a manual dashboard click brings it back. Scheduling the heartbeat any
+    less often than that would let the database pause between pings.
+    """
+    assert EXTERNAL_KEEPALIVE_INTERVAL_SECONDS < SUPABASE_PAUSE_AFTER_SECONDS

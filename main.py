@@ -67,9 +67,6 @@ from starlette.middleware.sessions import SessionMiddleware
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SESSION_SECRET_KEY", "change-this-key"))
 
-# Strong references to background tasks — prevents GC from silently killing them.
-_background_tasks: set = set()
-
 
 # ── Auto-migration on startup ──────────────────────────────────────────────────
 MIGRATIONS = [
@@ -90,48 +87,27 @@ MIGRATIONS = [
 ]
 
 # ── Keepalive tuning ───────────────────────────────────────────────────────────
-# Two different free-tier services go to sleep for two different reasons, and a
-# single heartbeat has to satisfy both:
+# Only ONE free-tier service still needs a heartbeat, and it is not the web host:
 #
-#   Render  — spins a free web service down after 15 minutes with no inbound
-#             HTTP request. Satisfied simply by the ping arriving.
 #   Supabase — pauses a free project after 7 days with no *database* activity,
-#             and never resumes it on its own; restoring is a manual dashboard
-#             action. Satisfied only if the request actually queries the database.
+#              and never resumes it on its own; restoring is a manual dashboard
+#              action. Satisfied only if the request actually queries the database.
 #
-# This is why the ping targets KEEPALIVE_PATH rather than /health: /health is
-# Render's own liveness probe and must never depend on the database.
-RENDER_SPIN_DOWN_SECONDS = 15 * 60
-KEEPALIVE_INTERVAL_SECONDS = 10 * 60
+# The web service is deliberately allowed to sleep now. It previously pinged
+# itself every 10 minutes, which kept it awake around the clock and consumed the
+# entire monthly free-instance-hour allowance for a tool that is only used in
+# short bursts. Letting it idle means the hours track real usage instead.
+#
+# The heartbeat therefore comes from an external scheduler that survives the web
+# service sleeping — a Cloudflare Cron Trigger calling KEEPALIVE_PATH. Waking the
+# service for a few seconds every 6 hours costs a negligible slice of the
+# allowance and keeps the database comfortably inside its 7-day window.
+#
+# The ping targets KEEPALIVE_PATH rather than /health because /health is the
+# host's liveness probe and must never depend on the database.
+SUPABASE_PAUSE_AFTER_SECONDS = 7 * 24 * 60 * 60
+EXTERNAL_KEEPALIVE_INTERVAL_SECONDS = 6 * 60 * 60
 KEEPALIVE_PATH = "/internal/keepalive"
-
-
-@app.on_event("startup")
-async def start_self_ping():
-    """Ping ourselves every 10 minutes so neither Render nor Supabase falls asleep."""
-    self_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    if not self_url:
-        print("[KEEPALIVE] RENDER_EXTERNAL_URL not set — self-ping disabled.", file=sys.stderr)
-        return
-
-    async def _ping_loop():
-        import httpx
-        async with httpx.AsyncClient(timeout=10) as client:
-            # Wait briefly for the server to finish starting before the first ping,
-            # then ping immediately — Render spins down after 15 min of inactivity,
-            # so we must not wait a full 10 min before the very first keepalive.
-            await asyncio.sleep(30)
-            while True:
-                try:
-                    r = await client.get(f"{self_url}{KEEPALIVE_PATH}")
-                    print(f"[KEEPALIVE] ping {r.status_code} {r.text}", file=sys.stderr)
-                except Exception as e:
-                    print(f"[KEEPALIVE] ping failed: {e}", file=sys.stderr)
-                await asyncio.sleep(KEEPALIVE_INTERVAL_SECONDS)
-
-    task = asyncio.create_task(_ping_loop())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 @app.on_event("startup")
