@@ -3,18 +3,22 @@ name = "mbl2pc"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 
+# ── Custom domain ──────────────────────────────────────────────────────────────
+# Cloudflare provisions the DNS record and certificate for this hostname. The
+# apex (rootlevellabs.tech) is untouched — this Worker only answers the subdomain.
+#
+# This MUST stay above the [triggers] table. TOML assigns every key that follows
+# a table header to that table, so declaring it lower down silently becomes
+# `triggers.routes`, and the domain is skipped with only a warning.
+routes = [
+  { pattern = "mbl2pc.rootlevellabs.tech", custom_domain = true }
+]
+
 # ── Scheduled heartbeat ────────────────────────────────────────────────────────
 # Every 6 hours. Supabase pauses a free project after 7 days without database
 # activity, so this has a very wide margin — even several missed runs are safe.
 [triggers]
 crons = ["0 */6 * * *"]
-
-# ── Custom domain ──────────────────────────────────────────────────────────────
-# Cloudflare provisions the DNS record and certificate for this hostname. The
-# apex (rootlevellabs.tech) is untouched — this Worker only answers the subdomain.
-routes = [
-  { pattern = "mbl2pc.rootlevellabs.tech", custom_domain = true }
-]
 
 [vars]
 # The FastAPI origin this Worker pings and proxies to, as shown in the Render
