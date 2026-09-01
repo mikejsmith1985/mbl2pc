@@ -88,19 +88,20 @@ mbl2pc is a cloud-based chat app that lets you send text, images, and files from
 1. **Push your code to GitHub.**
 2. **Create a new Web Service on Render.com:**
 	- Environment: Python 3.12
-	- Build Command: `pip install -r requirements.txt`
+	- Build Command: see `render.yaml` — it builds the React frontend before installing the Python dependencies
 	- Start Command: `uvicorn main:app --host 0.0.0.0 --port 10000`
-	- Set environment variables as above (use your Render.com URL for `OAUTH_REDIRECT_URI`)
+	- Set environment variables as above (see `OAUTH_REDIRECT_URI` below — it points at the custom domain, not the Render URL)
 	- Expose port 10000 (Render uses the `PORT` env var)
 3. **Set environment variables on Render:**
 	- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-	- `OAUTH_REDIRECT_URI`: your Render.com URL + `/auth` (e.g. `https://mbl2pc.onrender.com/auth`)
+	- `OAUTH_REDIRECT_URI`: `https://mbl2pc.rootlevellabs.tech/auth` — the public domain the Cloudflare Worker serves. This is a single value, so every login lands there even when started from the Render URL.
 	- `SESSION_SECRET_KEY`: any long random string
 	- `SUPABASE_URL`: your Supabase project URL
 	- `SUPABASE_SERVICE_KEY`: your Supabase service_role key
 	- `SUPABASE_STORAGE_BUCKET`: (optional, default: `mbl2pc-files`)
 4. **Set up Google OAuth:**
-	- In Google Cloud Console, set the authorized redirect URI to your Render.com URL (e.g. `https://your-app.onrender.com/auth`)
+	- In Google Cloud Console, add `https://mbl2pc.rootlevellabs.tech/auth` as an authorized redirect URI.
+	- Keep the older Render URL listed alongside it. It costs nothing and is the rollback: switching `OAUTH_REDIRECT_URI` back restores logins immediately, with no second Google edit.
 5. **Auto-deploy is already configured** — Render is connected to this repo and deploys automatically on every push to `main`. Just `git push` and Render handles the rest.
 
 ## Keeping Supabase Awake (Cloudflare Worker)

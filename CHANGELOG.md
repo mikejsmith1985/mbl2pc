@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **README's deployment section now documents the live custom domain.** It still told the
+  reader to point `OAUTH_REDIRECT_URI` and the Google authorized redirect URI at the
+  Render URL, which stopped being true once `mbl2pc.rootlevellabs.tech` went live. Also
+  records why the old Render URI is worth keeping registered in Google: it is the rollback.
+- **README's build command no longer contradicts `render.yaml`.** It listed only the
+  Python install step, predating the React frontend build that `render.yaml` runs first.
 
 ## [2026.9.1] - 2026-09-01
 
