@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A Cloudflare Worker (`worker/`) that keeps the Supabase database awake.** A cron
+  trigger calls `/internal/keepalive` on `https://mbl2pc.onrender.com` every 6 hours,
+  comfortably inside Supabase's 7-day auto-pause window, and keeps working while the
+  web service sleeps. It fails loudly on an unhealthy result: the endpoint answers
+  `200` even when the database is down, so the Worker reads the `database` field in
+  the body and throws if it is not `reachable`, surfacing a broken heartbeat in the
+  Cloudflare dashboard.
+- **The Worker also serves `mbl2pc.rootlevellabs.tech`,** proxying through to the
+  FastAPI origin. Redirects are passed to the browser rather than followed, so the
+  Google sign-in handshake survives, and response bodies stream untouched so the
+  `/events` SSE connection stays live. The proxy is deliberately thin — routes can be
+  answered natively here one at a time as the app is ported off Render.
+
 ### Changed
 - **The app no longer pings itself to stay awake.** A startup task hit
   `/internal/keepalive` every 10 minutes, which kept the web service running
@@ -18,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that job still matters. A Cloudflare Cron Trigger now calls
   `/internal/keepalive` every 6 hours — it keeps working while the web service
   sleeps, which the self-ping could not. The endpoint itself is unchanged.
+
+- **README's keep-alive instructions replaced.** They told the reader to set up an
+  UptimeRobot monitor pinging every 5 minutes to keep the service warm — the exact
+  behaviour that exhausted the hour allowance. Replaced with the Worker setup, including
+  the Google OAuth redirect-URI change the custom domain needs before logins work.
 
 ### Removed
 - `RENDER_SPIN_DOWN_SECONDS` and `KEEPALIVE_INTERVAL_SECONDS`, which only
@@ -107,5 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test_api.py` and `test_local.py` — was read as untested source. The gate also
   sent non-Go files down a JS/TS branch that looked for `foo.test.py`, which is
   not a Python convention, so no new `.py` file could ever satisfy it.
+
+- **README's keep-alive instructions replaced.** They told the reader to set up an
+  UptimeRobot monitor pinging every 5 minutes to keep the service warm — the exact
+  behaviour that exhausted the hour allowance. Replaced with the Worker setup, including
+  the Google OAuth redirect-URI change the custom domain needs before logins work.
 
 ### Removed

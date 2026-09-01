@@ -29,7 +29,7 @@ mbl2pc is a cloud-based chat app that lets you send text, images, and files from
 - Persistent chat history stored in Supabase (free PostgreSQL)
 - Files and images stored in Supabase Storage (free)
 - Modern responsive web UI with dark mode (works on mobile and desktop)
-- Always-ready: keep-alive pinging prevents Render free-tier cold starts
+- Scheduled Supabase heartbeat via a Cloudflare Worker (keeps the free database from auto-pausing)
 
 ## Prerequisites
 - Python 3.12.3
@@ -103,25 +103,53 @@ mbl2pc is a cloud-based chat app that lets you send text, images, and files from
 	- In Google Cloud Console, set the authorized redirect URI to your Render.com URL (e.g. `https://your-app.onrender.com/auth`)
 5. **Auto-deploy is already configured** — Render is connected to this repo and deploys automatically on every push to `main`. Just `git push` and Render handles the rest.
 
-## Always-Ready: Keep-Alive with UptimeRobot (Free)
+## Keeping Supabase Awake (Cloudflare Worker)
 
-Render.com's free plan spins down your service after ~15 minutes of inactivity, causing 30–60 second cold starts. To prevent this, set up a free UptimeRobot monitor that pings your app every 5 minutes.
+The app deliberately **does not** keep itself awake any more. It used to ping itself
+every 10 minutes, which kept the web service running around the clock and consumed the
+entire monthly free-instance-hour allowance for a tool that is only used in short bursts.
+The service is now allowed to idle, so those hours track real usage instead.
 
-### Setup steps
+One thing still needs a heartbeat. Supabase pauses a free project after **7 days** with no
+database activity, and only a manual dashboard click brings it back. That ping cannot come
+from a service that is allowed to sleep, so it comes from a Cloudflare Worker instead
+(`worker/`), which also serves the app on its own domain.
 
-1. Go to [uptimerobot.com](https://uptimerobot.com) and create a **free account**.
-2. Click **+ Add New Monitor**.
-3. Choose monitor type: **HTTP(s)**.
-4. Set the following:
-   - **Friendly Name**: `mbl2pc keep-alive`
-   - **URL**: `https://your-app.onrender.com/health`  
-     *(replace `your-app` with your actual Render service name)*
-   - **Monitoring Interval**: **5 minutes**
-5. Click **Create Monitor**.
+### What the Worker does
 
-That's it. UptimeRobot will ping `/health` every 5 minutes for free, keeping your Render service warm and eliminating cold start delays.
+| Trigger | Behaviour |
+|---|---|
+| Cron `0 */6 * * *` | Calls `/internal/keepalive`, which issues one cheap database read |
+| HTTP request | Proxies `mbl2pc.rootlevellabs.tech` through to the FastAPI origin |
 
-> **Note:** The free UptimeRobot plan includes up to 50 monitors with 5-minute intervals — more than enough for this use case.
+The heartbeat fails loudly rather than quietly: `/internal/keepalive` answers `200` even
+when the database is down (it is a heartbeat, not a health check), so the Worker reads the
+`database` field in the body and throws if it is not `reachable`. A failed run is visible
+in the Cloudflare dashboard well inside the 7-day window.
+
+### Deploying it
+
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler deploy
+```
+
+Set `ORIGIN_BASE_URL` in `worker/wrangler.toml` to your actual Render URL first — the
+committed value is derived from the service name in `render.yaml` and is a guess.
+
+### Before the custom domain can serve logins
+
+The proxy passes cookies and redirects through, but Google OAuth pins the callback to one
+exact URL. Sign-in will fail on the new domain until both of these change:
+
+1. **Google Cloud Console** → add `https://mbl2pc.rootlevellabs.tech/auth` as an authorized
+   redirect URI.
+2. **Render environment** → set `OAUTH_REDIRECT_URI` to that same URL.
+
+Until then, reach the app on its Render URL. The cron heartbeat works either way — it does
+not depend on the custom domain.
 
 ## Usage
 - Visit `/send.html` to access the chat UI.
