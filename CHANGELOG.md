@@ -93,4 +93,9 @@ _Nothing yet._
   sent non-Go files down a JS/TS branch that looked for `foo.test.py`, which is
   not a Python convention, so no new `.py` file could ever satisfy it.
 
+- **README's keep-alive instructions replaced.** They told the reader to set up an
+  UptimeRobot monitor pinging every 5 minutes to keep the service warm — the exact
+  behaviour that exhausted the hour allowance. Replaced with the Worker setup, including
+  the Google OAuth redirect-URI change the custom domain needs before logins work.
+
 ### Removed
